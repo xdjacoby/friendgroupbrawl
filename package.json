@@ -1,0 +1,26 @@
+{
+  "name": "friendgroupbrawl",
+  "version": "0.1.0",
+  "description": "Smash-style platform fighter starring the friend group",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xdjacoby/friendgroupbrawl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xdjacoby/friendgroupbrawl/issues"
+  },
+  "homepage": "https://github.com/xdjacoby/friendgroupbrawl#readme",
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  },
+  "private": true,
+  "type": "module"
+}
