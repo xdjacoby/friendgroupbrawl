@@ -6,7 +6,7 @@ Personal project, not for publishing.
 
 ## Running it
 
-Requires [Node.js](https://nodejs.org) 18+.
+Requires [Node.js](https://nodejs.org) 20.19 or newer (just install the LTS version).
 
 ```sh
 npm install
