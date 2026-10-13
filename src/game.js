@@ -69,7 +69,7 @@ export class Game {
         const cy = a.y + hb.y * s;
         const r = hb.r * s;
         for (const v of this.fighters) {
-          if (v === a || v.dead || v.invuln > 0 || a.move?.hit.has(v)) continue;
+          if (v === a || v.dead || v.intangible || a.move?.hit.has(v)) continue;
           if (!circleHitsBox(cx, cy, r, v)) continue;
           a.move.hit.add(v);
           v.takeHit(a, hb, a.facing, this);
@@ -123,7 +123,7 @@ export class Game {
       if (!def.pierce && p.x > m.x1 && p.x < m.x2 && p.y < m.top && p.y > m.bottom) alive = false;
       if (alive) {
         for (const v of this.fighters) {
-          if (v === p.owner || v.dead || v.invuln > 0) continue;
+          if (v === p.owner || v.dead || v.intangible) continue;
           if (!circleHitsBox(p.x, p.y, p.r, v)) continue;
           if (def.pierce) {
             const last = p.hits.get(v);
@@ -150,7 +150,7 @@ export class Game {
     const s = f.stats.scale;
     this.effects.shockwave(f.x, f.y, SHOCKWAVE.r * s);
     for (const v of this.fighters) {
-      if (v === f || v.dead || v.invuln > 0) continue;
+      if (v === f || v.dead || v.intangible) continue;
       if (circleHitsBox(f.x, f.y + 0.2, SHOCKWAVE.r * s, v)) {
         v.takeHit(f, SHOCKWAVE, Math.sign(v.x - f.x) || f.facing, this);
       }
@@ -209,6 +209,24 @@ export class Game {
       return;
     }
     f.land(platform, this);
+  }
+
+  // Snap to a free ledge when falling (or up-specialing / air dodging) next to it.
+  tryLedgeGrab(f) {
+    if (f.ledge || f.grounded || f.dead || f.hitstun > 0 || f.ledgeCooldown > 0) return;
+    const m = f.move;
+    if (m && m.name !== 'uspecial' && m.name !== 'airdodge') return;
+    if (f.vy + f.kby > 0 && m?.name !== 'uspecial') return; // still rising past it
+    const s = f.stats.scale;
+    for (const lg of this.stage.ledges) {
+      if (lg.holder && lg.holder !== f) continue;
+      const outside = (f.x - lg.x) * lg.dir; // distance out past the stage edge
+      if (outside < -0.3 || outside > 1.1) continue;
+      const handY = f.y + 1.95 * s;
+      if (handY < lg.y - 0.6 || handY > lg.y + 0.8) continue;
+      f.grabLedge(lg);
+      return;
+    }
   }
 
   checkBlastZone(f) {

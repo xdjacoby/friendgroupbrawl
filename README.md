@@ -27,7 +27,7 @@ Knock opponents off the stage. Hits raise their damage %, and the higher it is, 
 | Jump (double jump in air) | W or Space | ↑ | A or Y |
 | Attack | F | , | X |
 | Special | G | . | B |
-| Shield | H | / | Bumpers / triggers |
+| Shield / dodge | H | / | Bumpers / triggers |
 | Pause | Esc | Esc | Start |
 
 Hold a direction while pressing attack or special to pick the move:
@@ -35,6 +35,20 @@ Hold a direction while pressing attack or special to pick the move:
 - **Attacks**: neutral jab, side kick, up swipe, down sweep on the ground; neutral spin, forward punch, back kick, up kick, and a down spike in the air.
 - **Specials**: neutral = projectile; side = lunge; **up = recovery jump** (once per airtime, then you're helpless until you land); down = ground pound with a shockwave.
 - Tap jump for a short hop, hold it for a full jump. Tap down on a floating platform to drop through. Hold down in the air to fast-fall.
+
+**Dodging** (you can't be hit while you glow blue):
+- **Roll**: hold shield and tap left/right (or hold a direction and press shield). You end up facing back the way you came.
+- **Spot dodge**: hold shield and tap down. Sidestep in place.
+- **Air dodge**: press shield in the air. Hold a direction to zip that way. Once per jump; landing or grabbing a ledge resets it.
+
+**Ledges**: fall next to the edge of the main stage to grab it automatically. You're invincible for a moment when you grab (once per trip off the stage), and your double jump and up special come back. From the ledge:
+- **Up or toward the stage**: climb up
+- **Jump**: jump up from the ledge
+- **Attack or special**: climb up with a sweeping kick
+- **Shield**: roll onto the stage
+- **Down or away**: let go
+
+Only one fighter can hang on a ledge at a time, and after 5 seconds you let go.
 
 ## The cast
 
@@ -85,7 +99,7 @@ src/
 ## Roadmap ideas
 
 - Unique movesets for the rest of the friend group
-- Ledge grabbing, dodges/rolls, grabs and throws
+- Grabs and throws
 - More stages
 - Items
 - Sound effects and music

@@ -1,4 +1,4 @@
-import { MOVES, pickAttack, pickSpecial } from './moves.js';
+import { MOVES, DODGES, pickAttack, pickSpecial } from './moves.js';
 
 export const STEP = 1 / 60;
 const KB_DECAY = 25; // knockback speed lost per second
@@ -7,6 +7,11 @@ const SHIELD_MAX = 50;
 const RESPAWN_FRAMES = 90;
 const RESPAWN_INVULN = 120;
 const MIDAIR_JUMPS = 1;
+const LEDGE_CATCH = 8; // frames hanging before you can act
+const LEDGE_MAX = 300; // let go automatically after 5 seconds
+const LEDGE_INVULN = 45; // invincibility on grab (once per trip offstage)
+const LEDGE_COOLDOWN = 30; // frames before you can regrab after letting go
+const CLIMB_FRAMES = 12;
 
 const approach = (v, target, amount) =>
   v < target ? Math.min(v + amount, target) : Math.max(v - amount, target);
@@ -19,7 +24,7 @@ export class Fighter {
     this.spawn = spawn;
     const s = character.stats;
     this.stats = s;
-    this.moves = { ...MOVES, ...character.moves }; // characters can replace any move
+    this.moves = { ...MOVES, ...DODGES, ...character.moves }; // characters can replace any move
     this.weight = s.weight;
     this.hw = 0.38 * s.scale;
     this.h = 1.8 * s.scale;
@@ -32,6 +37,11 @@ export class Fighter {
   }
 
   reset(x, y) {
+    if (this.ledge) this.ledge.ledge.holder = null;
+    this.ledge = null; // { ledge, timer, action, frame } while hanging
+    this.ledgeCooldown = 0;
+    this.ledgeInvulnReady = true;
+    this.airDodgeUsed = false;
     this.x = x;
     this.y = y;
     this.prevY = y;
@@ -67,6 +77,13 @@ export class Fighter {
     return this.stocks <= 0 && this.dead;
   }
 
+  // Can't be hit: respawn/ledge invincibility, dodge frames, or climbing up.
+  get intangible() {
+    if (this.invuln > 0 || this.ledge?.action) return true;
+    const range = this.move?.def.intangible;
+    return !!range && this.move.frame >= range[0] && this.move.frame <= range[1];
+  }
+
   get canAct() {
     return !this.move && this.hitstun === 0 && this.landingLag === 0 && this.jumpsquat === 0 && !this.helpless;
   }
@@ -84,7 +101,10 @@ export class Fighter {
     if (this.hitFlash > 0) this.hitFlash--;
     if (this.dropTimer > 0) this.dropTimer--;
     if (this.slowTimer > 0) this.slowTimer--;
+    if (this.ledgeCooldown > 0) this.ledgeCooldown--;
     this.prevY = this.y;
+
+    if (this.ledge) return this.updateLedge(input, world);
 
     if (this.hitstun > 0) {
       this.hitstun--;
@@ -103,6 +123,7 @@ export class Fighter {
 
     this.integrate(input);
     world.collide(this);
+    world.tryLedgeGrab(this);
     world.checkBlastZone(this);
   }
 
@@ -114,6 +135,14 @@ export class Fighter {
   }
 
   handleActions(input, world) {
+    // Dodges. Ground: shield + left/right rolls, shield + down spot dodges. Air: shield air dodges.
+    if (this.grounded && input.shield) {
+      const rollDir = input.xPressed || (input.shieldPressed && Math.abs(input.x) > 0.6 ? Math.sign(input.x) : 0);
+      if (rollDir) return this.startMove('roll', { ...input, x: rollDir }, world);
+      if (input.downPressed || (input.shieldPressed && input.y < -0.6)) return this.startMove('spotdodge', input, world);
+    }
+    if (!this.grounded && input.shieldPressed && !this.airDodgeUsed) return this.startMove('airdodge', input, world);
+
     this.shielding = this.grounded && input.shield && this.shieldHP > 0;
     if (this.shielding) {
       this.shieldHP -= 0.28;
@@ -244,6 +273,8 @@ export class Fighter {
     this.jumpsLeft = MIDAIR_JUMPS;
     this.upSpecialUsed = false;
     this.sideSpecialUsed = false;
+    this.airDodgeUsed = false;
+    this.ledgeInvulnReady = true;
     this.fastFalling = false;
     if (this.helpless) {
       this.helpless = false;
@@ -287,6 +318,9 @@ export class Fighter {
     }
 
     const dmg = hb.dmg * power;
+    if (this.ledge) this.releaseLedge();
+    this.airDodgeUsed = false;
+    this.ledgeInvulnReady = true;
     this.percent = Math.min(999, this.percent + dmg);
     const kb = (hb.base + hb.growth * this.percent * 0.19 * (100 / this.weight)) * (0.9 + 0.1 * power);
     const rad = (hb.angle * Math.PI) / 180;
@@ -312,6 +346,87 @@ export class Fighter {
     this.lastHitBy = source;
     this.facing = -dir || this.facing;
     world.onHit(this, kb);
+  }
+
+  // ---- Ledge ----
+  // A ledge is { x, y, dir, platform, holder }; dir is -1 for the left edge, +1 for the right.
+
+  grabLedge(ledge) {
+    this.ledge = { ledge, timer: 0, action: null, frame: 0 };
+    ledge.holder = this;
+    this.move = null;
+    this.helpless = false;
+    this.fastFalling = false;
+    this.shielding = false;
+    this.jumpsquat = 0;
+    this.landingLag = 0;
+    this.jumpsLeft = MIDAIR_JUMPS;
+    this.upSpecialUsed = false;
+    this.sideSpecialUsed = false;
+    this.airDodgeUsed = false;
+    if (this.ledgeInvulnReady) {
+      this.invuln = Math.max(this.invuln, LEDGE_INVULN);
+      this.ledgeInvulnReady = false;
+    }
+  }
+
+  releaseLedge(cooldown = LEDGE_COOLDOWN) {
+    if (this.ledge) this.ledge.ledge.holder = null;
+    this.ledge = null;
+    this.ledgeCooldown = cooldown;
+    this.grounded = false;
+    this.platform = null;
+  }
+
+  // Hanging options: up/toward stage = climb, jump = ledge jump, attack/special =
+  // getup attack, shield = roll onto the stage, down/away = let go.
+  updateLedge(input, world) {
+    const L = this.ledge;
+    const lg = L.ledge;
+    const s = this.stats.scale;
+    const toward = -lg.dir;
+    const hangX = lg.x + lg.dir * 0.34 * s;
+    const hangY = lg.y - 1.85 * s;
+    this.facing = toward;
+    this.vx = this.vy = this.kbx = this.kby = 0;
+    L.timer++;
+
+    if (!L.action) {
+      this.x = hangX;
+      this.y = hangY;
+      if (L.timer < LEDGE_CATCH) return;
+      if (L.timer > LEDGE_MAX) return this.releaseLedge();
+      if (input.jump) {
+        this.releaseLedge();
+        this.vy = this.stats.jump * 1.05;
+        this.vx = toward * 2;
+        return;
+      }
+      if (input.attack || input.special) L.action = 'attack';
+      else if (input.shieldPressed) L.action = 'roll';
+      else if (input.y > 0.5 || input.x * toward > 0.5) L.action = 'climb';
+      else if (input.y < -0.5 || input.x * toward < -0.5) this.releaseLedge();
+      return;
+    }
+
+    // Climbing up: rise first, then step over the edge.
+    L.frame++;
+    const t = Math.min(1, L.frame / CLIMB_FRAMES);
+    const e = t * t * (3 - 2 * t);
+    const topX = lg.x + toward * (this.hw + 0.15);
+    this.x = hangX + (topX - hangX) * e;
+    this.y = hangY + (lg.y - hangY) * Math.min(1, e * 1.4);
+    if (t < 1) return;
+
+    const action = L.action;
+    this.releaseLedge(0);
+    this.x = topX;
+    this.y = this.prevY = lg.y;
+    this.grounded = true;
+    this.platform = lg.platform;
+    this.ledgeInvulnReady = true; // back on stage counts as landing
+    if (action === 'roll') this.startMove('roll', { ...input, x: toward }, world);
+    if (action === 'attack') this.startMove('ledgeattack', input, world);
   }
 
   die(world) {

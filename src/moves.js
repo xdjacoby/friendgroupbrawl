@@ -108,6 +108,71 @@ export const MOVES = {
   },
 };
 
+// ---- Dodges and ledge options ----
+// `intangible: [start, end]` frames can't be hit. Shared by every character.
+
+// Curled up mid-roll / mid-air-dodge.
+const CURL = {
+  rThigh: [0.9, -0.3, 0.15], rShin: [-0.6, -0.8, 0.1], lThigh: [0.9, -0.3, -0.15], lShin: [-0.6, -0.8, -0.1],
+  rArm: [0.6, -0.6, 0.3], rFore: [0.6, 0.6, 0.2], lArm: [0.6, -0.6, -0.3], lFore: [0.6, 0.6, -0.2],
+  lean: 0.5,
+};
+
+export const DODGES = {
+  // Ground roll: shield + left/right. You end up facing back the way you came.
+  roll: {
+    total: 28, limb: 'dodge', scripted: true, intangible: [3, 17], hitboxes: [],
+    onStart(f, input) { f.move.dir = Math.sign(input.x) || f.facing; },
+    onFrame(f, frame) {
+      f.vx = frame >= 2 && frame <= 18 ? 9 * f.move.dir : f.vx * 0.6;
+      // Rolls stop at the edge instead of carrying you off the stage.
+      const p = f.platform;
+      if (p && f.grounded) {
+        const next = f.x + f.vx / 60;
+        if (next < p.x1 + 0.25 || next > p.x2 - 0.25) f.vx = 0;
+      }
+      if (frame === 18) f.facing = -f.move.dir;
+    },
+    pose: () => ({ ...CURL, crouch: 0.6 }),
+  },
+  // Spot dodge: shield + down. Sidestep in place.
+  spotdodge: {
+    total: 24, limb: 'dodge', scripted: true, intangible: [2, 16], hitboxes: [],
+    onFrame(f) { f.vx *= 0.6; },
+    pose: () => ({ crouch: 0.3, lean: -0.15 }),
+  },
+  // Air dodge: shield in the air. Hold a direction to zip that way. Once per airtime.
+  airdodge: {
+    total: 32, limb: 'dodge', scripted: true, aerial: true, intangible: [2, 18], landingLag: 10, hitboxes: [],
+    onStart(f, input) {
+      const len = Math.hypot(input.x, input.y);
+      f.move.dir = len > 0.3 ? [input.x / len, input.y / len] : null;
+      f.airDodgeUsed = true;
+      f.fastFalling = false;
+    },
+    onFrame(f, frame) {
+      const d = f.move.dir;
+      if (d && frame <= 12) {
+        const speed = 13 * (1 - frame / 16);
+        f.vx = d[0] * speed;
+        f.vy = d[1] * speed;
+      } else if (d) {
+        f.vx *= 0.88;
+        f.vy = Math.max(f.vy, -6);
+      } else {
+        f.vx *= 0.96;
+        f.vy = Math.max(f.vy, -f.stats.maxFall);
+      }
+    },
+    pose: () => CURL,
+  },
+  // Getup attack from the ledge (after climbing up).
+  ledgeattack: {
+    total: 26, limb: 'leg', intangible: [0, 4],
+    hitboxes: [{ start: 5, end: 9, x: 0.9, y: 0.45, r: 0.7, dmg: 8, base: 8, growth: 0.55, angle: 30 }],
+  },
+};
+
 // The ground-pound landing wave.
 export const SHOCKWAVE = { r: 1.6, dmg: 8, base: 9, growth: 0.6, angle: 70 };
 

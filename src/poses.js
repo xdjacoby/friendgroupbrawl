@@ -36,6 +36,18 @@ const STATES = {
     rThigh: [0.2, -1, 0.3], rShin: [-0.2, -1, 0.2], lThigh: [-0.2, -1, -0.3], lShin: [-0.2, -1, -0.2],
     look: 0.3,
   },
+  // Hanging from a ledge (facing the stage): both hands up on the edge, legs dangling.
+  ledge: {
+    rArm: [0.5, 1, 0.3], rFore: [0.6, 1, 0.15], lArm: [0.5, 1, -0.3], lFore: [0.6, 1, -0.15],
+    rThigh: [0.15, -1, 0.12], rShin: [0, -1, 0.1], lThigh: [-0.05, -1, -0.12], lShin: [-0.1, -1, -0.1],
+    lean: 0.1, look: 0.2,
+  },
+  // Hauling yourself up over the edge.
+  climb: {
+    rArm: [0.6, -0.5, 0.3], rFore: [0.6, -0.8, 0.2], lArm: [0.6, -0.5, -0.3], lFore: [0.6, -0.8, -0.2],
+    rThigh: [0.8, -0.4, 0.15], rShin: [-0.3, -1, 0.1], lThigh: [0.2, -1, -0.15], lShin: [-0.5, -0.85, -0.1],
+    lean: 0.45,
+  },
   hurt: {
     rArm: [-0.3, 0.9, 0.6], rFore: [-0.5, 0.8, 0.3], lArm: [-0.2, 0.9, -0.6], lFore: [-0.4, 0.9, -0.3],
     rThigh: [0.45, -0.9, 0.3], rShin: [-0.5, -0.85, 0.2], lThigh: [-0.25, -1, -0.3], lShin: [-0.4, -0.9, -0.2],
@@ -98,6 +110,7 @@ function attackPose(def, frame) {
 
 export function stateOf(f) {
   if (f.hitstun > 0) return 'hurt';
+  if (f.ledge) return f.ledge.action ? 'climb' : 'ledge';
   if (f.move) return 'attack';
   if (f.shielding || f.jumpsquat > 0 || f.landingLag > 0) return 'crouch';
   if (!f.grounded) return f.helpless ? 'helpless' : f.vy > 0 ? 'rise' : 'fall';

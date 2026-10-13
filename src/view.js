@@ -272,17 +272,29 @@ export class FighterView {
     this.shield.visible = f.shielding;
     if (f.shielding) this.shield.scale.setScalar(0.45 + 0.65 * (f.shieldHP / 50));
 
-    // Hit flash / respawn blink / slowed by a cloud
+    // Hit flash / respawn + ledge invincibility blink / dodge tint / slowed by a cloud
     const flash = f.hitFlash > 0 ? 0.9 : f.invuln > 0 && Math.floor(time * 10) % 2 ? 0.45 : f.helpless ? 0.15 : 0;
-    for (const m of this.materials) {
-      if (!m.emissive) continue;
-      if (flash === 0 && f.slowTimer > 0) m.emissive.setRGB(0.05, 0.18, 0.05);
-      else m.emissive.setScalar(flash);
+    const dodging = flash === 0 && f.intangible && f.invuln === 0;
+    for (const mat of this.materials) {
+      if (!mat.emissive) continue;
+      if (dodging) mat.emissive.setRGB(0.12, 0.22, 0.4);
+      else if (flash === 0 && f.slowTimer > 0) mat.emissive.setRGB(0.05, 0.18, 0.05);
+      else mat.emissive.setScalar(flash);
     }
 
-    // Tumble when launched hard
-    const tumbling = f.hitstun > 12 && !f.grounded;
-    this.tumble.rotation.z = tumbling ? this.tumble.rotation.z + dt * 12 * f.facing : lerp(this.tumble.rotation.z % (Math.PI * 2), 0, Math.min(1, dt * 15));
+    const m = f.move;
+    if (m?.name === 'roll') {
+      // One full forward roll in the direction of travel.
+      const t = Math.max(0, Math.min(1, (m.frame - 2) / 16));
+      this.tumble.rotation.z = -t * Math.PI * 2 * m.dir;
+    } else {
+      // Tumble when launched hard
+      const tumbling = f.hitstun > 12 && !f.grounded;
+      this.tumble.rotation.z = tumbling ? this.tumble.rotation.z + dt * 12 * f.facing : lerp(this.tumble.rotation.z % (Math.PI * 2), 0, Math.min(1, dt * 15));
+    }
+    // Spot dodge: sidestep back into the screen.
+    const sidestep = m?.name === 'spotdodge' && m.frame <= 16 ? -0.8 : 0;
+    this.body.position.z = lerp(this.body.position.z, sidestep, Math.min(1, dt * 25));
     this.root.updateMatrixWorld(true);
 
     const pose = computePose(f, time);
