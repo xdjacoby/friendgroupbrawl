@@ -19,6 +19,7 @@ export class Fighter {
     this.spawn = spawn;
     const s = character.stats;
     this.stats = s;
+    this.moves = { ...MOVES, ...character.moves }; // characters can replace any move
     this.weight = s.weight;
     this.hw = 0.38 * s.scale;
     this.h = 1.8 * s.scale;
@@ -59,6 +60,7 @@ export class Fighter {
     this.respawnTimer = 0;
     this.lastHitBy = null;
     this.hitFlash = 0;
+    this.slowTimer = 0;
   }
 
   get eliminated() {
@@ -81,6 +83,7 @@ export class Fighter {
     if (this.invuln > 0) this.invuln--;
     if (this.hitFlash > 0) this.hitFlash--;
     if (this.dropTimer > 0) this.dropTimer--;
+    if (this.slowTimer > 0) this.slowTimer--;
     this.prevY = this.y;
 
     if (this.hitstun > 0) {
@@ -172,7 +175,7 @@ export class Fighter {
   }
 
   startMove(name, input, world) {
-    const def = MOVES[name];
+    const def = this.moves[name];
     this.shielding = false;
     this.move = { name, def, frame: 0, hit: new Set() };
     def.onStart?.(this, input, world);
@@ -200,22 +203,25 @@ export class Fighter {
     const s = this.stats;
     const dt = STEP;
     const stunned = this.hitstun > 0;
+    // Scripted moves (lunges, recoveries, ground pound) set their own velocity.
+    const scripted = !!this.move?.def.scripted;
+    const slow = this.slowTimer > 0 ? 0.55 : 1;
 
     if (this.grounded) {
       this.vy = 0;
       if (this.canAct && !this.shielding) {
-        this.vx = approach(this.vx, input.x * s.runSpeed, 70 * dt);
-      } else if (!this.move?.def.onFrame) {
+        this.vx = approach(this.vx, input.x * s.runSpeed * slow, 70 * dt);
+      } else if (!scripted) {
         this.vx = approach(this.vx, 0, 40 * dt);
       }
     } else {
-      if (!stunned && !this.move?.def.onFrame) {
-        if (Math.abs(input.x) > 0.1) this.vx = approach(this.vx, input.x * s.airSpeed, 30 * dt);
+      if (!stunned && !scripted) {
+        if (Math.abs(input.x) > 0.1) this.vx = approach(this.vx, input.x * s.airSpeed * slow, 30 * dt);
         else this.vx = approach(this.vx, 0, 4 * dt);
       }
-      if (!stunned && input.downPressed && this.vy <= 0 && !this.move?.def.onFrame) this.fastFalling = true;
-      // Scripted specials (e.g. the ground pound) are allowed past terminal velocity.
-      const maxFall = this.move?.def.onFrame ? Infinity : this.fastFalling ? s.maxFall * 1.6 : s.maxFall;
+      if (!stunned && input.downPressed && this.vy <= 0 && !scripted) this.fastFalling = true;
+      // Scripted moves (e.g. the ground pound) are allowed past terminal velocity.
+      const maxFall = scripted ? Infinity : this.fastFalling ? s.maxFall * 1.6 : s.maxFall;
       this.vy = Math.max(this.vy - s.gravity * dt, -maxFall);
     }
 
@@ -253,6 +259,18 @@ export class Fighter {
   }
 
   takeHit(attacker, hb, dir, world) {
+    const power = attacker.stats?.power ?? 1;
+    const source = attacker instanceof Fighter ? attacker : attacker.owner;
+
+    // Gas-style hits (e.g. a lingering cloud): chip damage that seeps through shields, no knockback.
+    if (hb.noKnockback) {
+      this.percent = Math.min(999, this.percent + hb.dmg * power);
+      this.hitFlash = Math.max(this.hitFlash, 3);
+      if (hb.slow) this.slowTimer = Math.max(this.slowTimer, hb.slow);
+      this.lastHitBy = source;
+      return;
+    }
+
     if (this.shielding) {
       this.shieldHP -= hb.dmg * 1.3;
       this.hitlag = attacker.hitlag = Math.floor(3 + hb.dmg * 0.3);
@@ -268,7 +286,6 @@ export class Fighter {
       return;
     }
 
-    const power = attacker.stats?.power ?? 1;
     const dmg = hb.dmg * power;
     this.percent = Math.min(999, this.percent + dmg);
     const kb = (hb.base + hb.growth * this.percent * 0.19 * (100 / this.weight)) * (0.9 + 0.1 * power);
@@ -292,7 +309,7 @@ export class Fighter {
     this.hitlag = Math.floor(3 + dmg * 0.35);
     if (attacker instanceof Fighter) attacker.hitlag = this.hitlag;
     this.hitFlash = 8;
-    this.lastHitBy = attacker instanceof Fighter ? attacker : attacker.owner;
+    this.lastHitBy = source;
     this.facing = -dir || this.facing;
     world.onHit(this, kb);
   }

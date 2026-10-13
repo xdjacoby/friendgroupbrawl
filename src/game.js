@@ -81,19 +81,30 @@ export class Game {
 
   spawnProjectile(owner, def) {
     const s = owner.stats.scale;
-    const mesh = new THREE.Mesh(
-      this.projectileGeo,
-      new THREE.MeshBasicMaterial({ color: owner.character.color }),
-    );
-    mesh.scale.setScalar(def.r);
+    if (def.unique) {
+      // Only one of these per owner: the old one fades out quickly.
+      for (const p of this.projectiles) {
+        if (p.owner === owner && p.hb.unique === def.unique) p.life = Math.min(p.life, 15);
+      }
+    }
+    let mesh;
+    if (def.look === 'cloud') {
+      mesh = this.effects.makeCloud(def.color ?? 0xf0f0f5, def.opacity, def.squash);
+    } else {
+      mesh = new THREE.Mesh(this.projectileGeo, new THREE.MeshBasicMaterial({ color: owner.character.color }));
+    }
     this.scene.add(mesh);
     this.projectiles.push({
       owner,
       stats: owner.stats,
-      x: owner.x + 0.7 * s * owner.facing,
-      y: owner.y + 1.2 * s,
+      x: owner.x + (def.x ?? 0.7) * s * owner.facing,
+      y: owner.y + (def.y ?? 1.2) * s,
       vx: def.speed * owner.facing,
+      r: def.r * s,
+      maxR: (def.maxR ?? def.r) * s,
       life: def.life,
+      age: 0,
+      hits: new Map(), // victim -> age of last hit, for multi-hit clouds
       hb: def,
       mesh,
     });
@@ -102,15 +113,26 @@ export class Game {
   stepProjectiles() {
     const m = this.stage.main;
     this.projectiles = this.projectiles.filter((p) => {
-      p.x += p.vx / 60;
+      const def = p.hb;
+      p.age++;
       p.life--;
-      let alive = p.life > 0 && !(p.x > m.x1 && p.x < m.x2 && p.y < m.top && p.y > m.bottom);
+      if (def.drag) p.vx *= 1 - def.drag;
+      if (def.grow) p.r = Math.min(p.maxR, p.r + def.grow / 60);
+      p.x += p.vx / 60;
+      let alive = p.life > 0;
+      if (!def.pierce && p.x > m.x1 && p.x < m.x2 && p.y < m.top && p.y > m.bottom) alive = false;
       if (alive) {
         for (const v of this.fighters) {
           if (v === p.owner || v.dead || v.invuln > 0) continue;
-          if (circleHitsBox(p.x, p.y, p.hb.r, v)) {
-            v.takeHit(p, p.hb, Math.sign(p.vx), this);
-            this.effects.spark(p.x, p.y, p.owner.character.color, 0.4);
+          if (!circleHitsBox(p.x, p.y, p.r, v)) continue;
+          if (def.pierce) {
+            const last = p.hits.get(v);
+            if (last !== undefined && p.age - last < (def.hitEvery ?? 30)) continue;
+            p.hits.set(v, p.age);
+          }
+          v.takeHit(p, def, Math.sign(p.vx) || Math.sign(v.x - p.x) || 1, this);
+          if (!def.noKnockback) this.effects.spark(v.x, v.y + v.h * 0.6, p.owner.character.color, 0.4);
+          if (!def.pierce) {
             alive = false;
             break;
           }
@@ -118,7 +140,7 @@ export class Game {
       }
       if (!alive) {
         p.mesh.removeFromParent();
-        p.mesh.material.dispose();
+        p.mesh.traverse((o) => o.material?.dispose());
       }
       return alive;
     });
@@ -222,7 +244,16 @@ export class Game {
     this.time += dt;
     this.stageView.update(dt);
     for (const v of this.views) v.update(dt, this.time);
-    for (const p of this.projectiles) p.mesh.position.set(p.x, p.y, 0);
+    for (const p of this.projectiles) {
+      p.mesh.position.set(p.x, p.y, 0);
+      if (p.hb.look === 'cloud') {
+        // Fade in over the first few frames, out over the last 30.
+        const alpha = Math.min(1, p.age / 6, p.life / 30);
+        this.effects.updateCloud(p.mesh, p.r, alpha, this.time);
+      } else {
+        p.mesh.scale.setScalar(p.r);
+      }
+    }
     this.effects.update(dt);
     this.updateCamera(dt);
     this.hud.update();
