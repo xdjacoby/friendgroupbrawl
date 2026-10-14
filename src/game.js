@@ -282,8 +282,8 @@ export class Game {
     // Thrown props and vehicles are built fresh each time; clouds and bubbles share geometry/textures.
     const own = p.hb.look === 'prop';
     p.mesh.traverse((o) => {
-      if (own) o.geometry?.dispose();
-      if (own) o.material?.map?.dispose();
+      if (own && !o.userData.cached) o.geometry?.dispose(); // loaded models stay cached
+      if (own && !o.userData.cached) o.material?.map?.dispose();
       o.material?.dispose();
     });
   }

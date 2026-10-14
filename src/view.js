@@ -1,22 +1,9 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { computePose } from './poses.js';
 import { Puppet } from './puppet.js';
 import { createProp } from './props.js';
-
-const loader = new GLTFLoader();
-const modelCache = new Map();
-
-function loadModel(url) {
-  if (!modelCache.has(url)) {
-    modelCache.set(url, loader.loadAsync(url).catch((err) => {
-      console.warn(`Could not load ${url}, using placeholder.`, err);
-      return null;
-    }));
-  }
-  return modelCache.get(url);
-}
+import { loadModel } from './models.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const NEG_Y = new THREE.Vector3(0, -1, 0);
@@ -66,6 +53,7 @@ export class FighterView {
     this.root.scale.setScalar(fighter.stats.scale);
 
     if (fighter.character.model) this.tryLoadModel(fighter.character.model);
+    for (const url of fighter.character.preload ?? []) loadModel(url); // e.g. Byron's Lambo
   }
 
   buildPlaceholder(color) {
@@ -348,8 +336,11 @@ export class FighterView {
     }
     for (const [n, p] of Object.entries(props)) if (p) p.object.visible = n === name;
     if (!name || !props[name]) return;
-    holder.position.x = pose.mountX ?? 0;
-    holder.rotation.z = lerp(holder.rotation.z, pose.mountPitch ?? 0, Math.min(1, dt * 12)); // wheelies
+    // Wheelies tip it up around the prop's pivot (the rear axle).
+    const a = (holder.rotation.z = lerp(holder.rotation.z, pose.mountPitch ?? 0, Math.min(1, dt * 12)));
+    const [px, py] = props[name].pivot ?? [0, 0];
+    holder.position.x = (pose.mountX ?? 0) + px - (px * Math.cos(a) - py * Math.sin(a));
+    holder.position.y = py - (px * Math.sin(a) + py * Math.cos(a));
     props[name].roll?.(Math.abs(this.f.vx) * dt);
   }
 

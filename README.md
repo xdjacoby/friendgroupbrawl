@@ -173,7 +173,7 @@ A professional larper: confidently "knows" karate, parkour, Krav Maga and cars, 
 | Special | Move | What it does |
 |---|---|---|
 | Neutral | **Lasso of Truth** | Throws his earbuds out like a lasso. On the ground it grabs whoever it touches from far away (even through shields), reels them in, and he's holding them: throw away. In the air it flies up at an angle and yanks people toward him, and if it reaches a ledge while he's off the stage he **zips to it** (a tether recovery). |
-| Side | **Lambo** | Hops in his Lamborghini and it drives itself. **Hold forward** to go faster, **hold back** to brake and spin it around, **jump** to hop it, **up** for a wheelie. Running someone over at speed sends them. **Special or shield** bails out (so does jump in the air), and the empty car keeps rolling and wrecks. One Lambo at a time: after it wrecks it's in the shop for a few seconds, and trying again just gets you "IT'S IN THE SHOP" (wide open). Drive it off the stage and don't bail, and you go down with it. |
+| Side | **Lambo** | Hops in his Lamborghini (an Aventador SVJ with the roof cut off; he'll tell you it's a Huracán) and it drives itself. **Hold forward** to go faster, **hold back** to brake and spin it around, **jump** to hop it, **up** for a wheelie. Running someone over at speed sends them. **Special or shield** bails out (so does jump in the air), and the empty car keeps rolling and wrecks. One Lambo at a time: after it wrecks it's in the shop for a few seconds, and trying again just gets you "IT'S IN THE SHOP" (wide open). Drive it off the stage and don't bail, and you go down with it. |
 | Up | **Parkour!** | A huge backflip straight up with the earbuds whirling around him. Hits twice. His recovery. |
 | Down | **Krav Maga (trust me bro)** | A counter: drops into a stance, and if anything hits him during it he slips it and answers with a spinning kick. Nothing hits him? He just stands there. |
 
@@ -202,6 +202,7 @@ voicelines/    voice clips per friend (see voicelines/README.md)
 tools/
   autorig.py   gives an un-rigged model a skeleton (run by Claude with Blender's Python module)
   slim.py      makes an already rigged model lighter (fewer triangles, smaller textures)
+  prep_lambo.py  turns the Sketchfab Aventador into Byron's game-ready Lambo
 src/
   main.js      menu, match flow, game loop (fixed 60 fps simulation)
   game.js      a single match: hit detection, stage collision, camera, KOs
@@ -221,6 +222,10 @@ src/
   victory.js   the victory screen
   voice.js     plays the voicelines
 ```
+
+## Credits
+
+- Byron's Lamborghini: ["Lamborghini Aventador SVJ SDC (FREE)"](https://sketchfab.com/3d-models/lamborghini-aventador-svj-sdc-free-784e4656aca649cca55d6b18740a19b2) by [SDC PERFORMANCE](https://sketchfab.com/Lambo_SC04), licensed [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Changed for the game: roof and side windows removed, simplified, recolored lights and trim, resized ([`tools/prep_lambo.py`](tools/prep_lambo.py)).
 
 ## Roadmap ideas
 

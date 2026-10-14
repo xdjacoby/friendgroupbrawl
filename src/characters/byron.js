@@ -62,7 +62,7 @@ const fast = (f) => f.move.speed >= 11;
 // The empty car after he bails (or gets knocked out of it): it rolls on,
 // slowing down, then wrecks.
 const LOOSE_LAMBO = {
-  look: 'prop', prop: 'lambo', drive: true, gravity: 40, ride: 0.6, x: 0.25, y: 0, vy: 0, life: 75,
+  look: 'prop', prop: 'lambo', drive: true, gravity: 40, ride: 0.6, x: 0, y: 0, vy: 0, life: 75,
   r: 0.75, pierce: true, hitEvery: 40, dmg: 9, base: 7.5, growth: 0.8, angle: 45,
   update(p) { p.vx *= 0.985; },
   onEnd(p, world) {
@@ -98,6 +98,7 @@ export const BYRON = {
   color: 0x9be22d,
   model: 'models/byron.glb',
   props: { right: 'earbuds' },
+  preload: ['models/lambo.glb'], // his Lamborghini (see props.js)
   stats: { weight: 100, runSpeed: 7.8, airSpeed: 6.2, jump: 15, gravity: 40, maxFall: 14.5, power: 1.02, scale: 1.0 },
 
   update(f) {
@@ -485,10 +486,13 @@ export const BYRON = {
       ],
       pose(frame, f) {
         const m = f.move;
+        // In a wheelie the car tips up around its rear axle, so he rides up and back with it.
+        const w = m.wheelie;
         const drive = {
-          mount: 'lambo', mountX: 0.25, mountPitch: m.wheelie ? 0.3 : 0,
-          crouch: 2.3, lean: m.wheelie ? -0.35 : -0.15, look: 0.05,
-          rThigh: [1, -0.05, 0.18], rShin: [1, -0.5, 0.12], lThigh: [1, -0.05, -0.18], lShin: [1, -0.5, -0.12],
+          mount: 'lambo', mountPitch: w ? 0.22 : 0,
+          crouch: w ? 1.2 : 2.3, lean: w ? -0.45 : -0.15, look: 0.05,
+          rThigh: [1, w ? 0.25 : -0.05, 0.18], rShin: [1, w ? -0.25 : -0.5, 0.12],
+          lThigh: [1, w ? 0.25 : -0.05, -0.18], lShin: [1, w ? -0.25 : -0.5, -0.12],
           rArm: [0.55, -0.7, 0.3], rFore: [0.95, 0.2, -0.15], lArm: [0.1, -0.5, -1], lFore: [0.3, -1, -0.3],
           rProp: 'upright',
         };
