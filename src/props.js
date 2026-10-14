@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry as RoundedBox } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { loadModel } from './models.js';
 
 // Held props. Each is built with the grip at the origin and the "business end"
 // pointing down -y, so 'club' mode can line -y up with the forearm. +x is the
@@ -373,9 +374,47 @@ function wheels(group, spots, r, width) {
   return (dist) => { for (const w of list) w.rotation.z -= dist / r; };
 }
 
-// Byron's Lamborghini (a roadster, so you can see him driving it). Sits on
-// the ground at the origin, nose toward +x.
+// Byron's Lamborghini: an Aventador SVJ (public/models/lambo.glb, made from a
+// Sketchfab model by tools/prep_lambo.py: roof cut off so you can see him
+// driving, seat at the origin, nose toward +x). The cartoon car below stands
+// in until it loads, or if the file is missing.
 function lambo() {
+  const group = new THREE.Group();
+  const stand = cartoonLambo();
+  stand.object.position.x = 0.25; // its cockpit over the seat
+  group.add(stand.object);
+  let wheels = [];
+  let rollStand = stand.roll;
+  loadModel('models/lambo.glb').then((gltf) => {
+    if (!gltf) return;
+    const car = gltf.scene.clone();
+    car.traverse((o) => {
+      o.userData.cached = true; // geometry and textures are shared with the cache
+      if (!o.isMesh) return;
+      o.castShadow = true;
+      // Its own materials, showing both sides now that the roof is gone.
+      o.material = o.material.clone();
+      o.material.side = THREE.DoubleSide;
+    });
+    wheels = ['wheel_fl', 'wheel_fr', 'wheel_rear'].map((n) => car.getObjectByName(n)).filter(Boolean);
+    group.remove(stand.object);
+    group.add(car);
+    rollStand = null;
+  });
+  return {
+    object: group,
+    setGlow() {},
+    pivot: [-1.0, 0.25], // rear axle: wheelies tip up around it
+    roll(dist) {
+      rollStand?.(dist);
+      for (const w of wheels) w.rotation.z -= dist / 0.25; // wheel radius 0.25 m
+    },
+  };
+}
+
+// The cartoon Lambo (a roadster, so you can see him driving it). Sits on the
+// ground at the origin, nose toward +x.
+function cartoonLambo() {
   const group = new THREE.Group();
   const paint = new THREE.MeshStandardMaterial({ color: 0xffc400, roughness: 0.25, metalness: 0.2 });
   const black = new THREE.MeshStandardMaterial({ color: 0x18181d, roughness: 0.5 });

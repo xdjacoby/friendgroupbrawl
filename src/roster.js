@@ -25,7 +25,7 @@ import { BYRON } from './characters/byron.js';
 // `base` applies everywhere), props ({ right: 'bong', left: 'dabPen' }, see
 // props.js), hud(f) (a status line under the name on the HUD), cpu(f, info)
 // (extra CPU habits, see jacoby.js), update(f, world) (runs every frame, e.g.
-// Andrew's blood sugar), victory ({ pose(frame), onFrame(frame, ctx), quote,
+// Andrew's blood sugar), preload (GLB files its props need, e.g. Byron's car), victory ({ pose(frame), onFrame(frame, ctx), quote,
 // prop }: the victory screen animation, see victory.js).
 
 export const ROSTER = [DRAVEN, JACOBY, ELI, ANDREW, BYRON];
