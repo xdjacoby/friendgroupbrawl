@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
+// The original stage: a floating island in a cartoon valley.
 // Stage layout in meters. Gameplay happens on the x/y plane at z = 0.
+// Every stage returns this same shape (see stages.js for the list).
 export function createStage() {
   const main = { x1: -7, x2: 7, y: 0, top: 0, bottom: -3, passThrough: false };
   return {
-    name: 'Battleground',
+    name: 'Sky Island',
     main,
     // Grabbable corners of the main platform. dir = which side the hanging fighter is on.
     ledges: [
@@ -33,7 +35,7 @@ export function createStage() {
 // Toon shading (three flat tones per color), dark "ink" outlines, and textures
 // painted onto canvases at load time, so there are no image files to manage.
 
-const INK = 0x2a1f3d;
+export const INK = 0x2a1f3d;
 const V2 = THREE.Vector2;
 
 let rampTexture = null;
@@ -46,14 +48,14 @@ function ramp() {
   return rampTexture;
 }
 
-const toon = (color, extra = {}) => new THREE.MeshToonMaterial({ color, gradientMap: ramp(), ...extra });
+export const toon = (color, extra = {}) => new THREE.MeshToonMaterial({ color, gradientMap: ramp(), ...extra });
 
 // Ink outline: a slightly inflated, inside-out copy of the mesh in a dark color.
 // `width` is in world units (divided by the mesh's own scale). The inflation is
 // baked into the outline's vertices, so every outline shares one material and
 // mergeStatic() can draw all of them in one go.
 const INK_MAT = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
-function ink(mesh, width = 0.05) {
+export function ink(mesh, width = 0.05) {
   const src = mesh.geometry;
   let geo = new THREE.BufferGeometry();
   geo.setAttribute('position', src.getAttribute('position'));
@@ -74,7 +76,7 @@ function ink(mesh, width = 0.05) {
 // Scenery that never moves (relative to `root`) is hundreds of small meshes;
 // drawing each one separately is what slows the frame down. Bake them into one
 // mesh per material (all the outlines become a single mesh, and so on).
-function mergeStatic(root, { receive = false } = {}) {
+export function mergeStatic(root, { receive = false } = {}) {
   root.updateMatrixWorld(true);
   const inv = root.matrixWorld.clone().invert();
   const meshes = [];
@@ -99,7 +101,7 @@ function mergeStatic(root, { receive = false } = {}) {
 }
 
 // mesh(geometry, material, x, y, z, parent) with shadows on.
-function place(geometry, material, x, y, z, parent) {
+export function place(geometry, material, x, y, z, parent) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
@@ -109,11 +111,11 @@ function place(geometry, material, x, y, z, parent) {
 }
 
 // Seeded random so the scenery looks the same every match.
-function seeded(seed) {
+export function seeded(seed) {
   return () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 }
 
-function paint(w, h, draw) {
+export function paint(w, h, draw) {
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Fighter } from './fighter.js';
 import { SHOCKWAVE, hitboxPos } from './moves.js';
-import { createStage, buildStageScene } from './stage.js';
+import { stageById } from './stages.js';
 import { FighterView } from './view.js';
 import { Effects } from './effects.js';
 import { Hud } from './hud.js';
@@ -37,7 +37,7 @@ function hitboxWorld(a, hb, frame, x, y) {
 
 // One match: simulation + its scene. Create a new Game per match.
 export class Game {
-  constructor({ renderer, players, stocks, onEnd }) {
+  constructor({ renderer, players, stocks, onEnd, stage }) {
     this.renderer = renderer;
     this.onEnd = onEnd;
     this.scene = new THREE.Scene();
@@ -49,8 +49,9 @@ export class Game {
     this.frame = 0;
     this.endTimer = -1;
 
-    this.stage = createStage();
-    this.stageView = buildStageScene(this.stage, this.scene);
+    const where = stageById(stage);
+    this.stage = where.create();
+    this.stageView = where.build(this.stage, this.scene);
     this.effects = new Effects(this.scene);
 
     this.fighters = players.map((p, i) => new Fighter({
@@ -59,6 +60,7 @@ export class Game {
       controller: p.controller,
       spawn: this.stage.spawns[i],
       stocks,
+      look: p.look,
     }));
     this.views = this.fighters.map((f) => new FighterView(f, this.scene, SLOT_COLORS[f.slot]));
     this.projectiles = [];
@@ -77,8 +79,52 @@ export class Game {
       const input = f.controller.poll(f, this);
       f.step(input, this);
     }
+    this.pushApart();
     this.resolveHits();
     this.stepProjectiles();
+  }
+
+  // Bodies are solid: overlapping fighters get pushed apart, so you can't walk
+  // through someone (you shove them along instead) and they stay in front of
+  // you to hit. Dodges, launched fighters and grabs pass through. Nobody gets
+  // shoved off the edge of what they're standing on.
+  pushApart() {
+    const solid = (f) => !f.dead && !f.ledge && !f.heldBy && !f.holding && !f.move?.def.intangible
+      && !(f.hitstun > 0 && !f.grounded);
+    const fs = this.fighters;
+    for (let i = 0; i < fs.length; i++) {
+      for (let j = i + 1; j < fs.length; j++) {
+        const a = fs[i];
+        const b = fs[j];
+        if (!solid(a) || !solid(b)) continue;
+        const overlapY = Math.min(a.y + a.hurtH, b.y + b.hurtH) - Math.max(a.y, b.y);
+        if (overlapY < 0.45) continue;
+        const dx = b.x - a.x;
+        const overlap = a.hw * 0.8 + b.hw * 0.8 - Math.abs(dx);
+        if (overlap <= 0) continue;
+        const dir = Math.sign(dx) || (a.slot < b.slot ? 1 : -1);
+        const push = overlap * (a.grounded && b.grounded ? 0.5 : 0.25);
+        this.shove(a, -dir * push);
+        this.shove(b, dir * push);
+      }
+    }
+  }
+
+  shove(f, dx) {
+    let x = f.x + dx;
+    const p = f.grounded ? f.platform : null;
+    if (p) x = Math.max(p.x1 + 0.1, Math.min(p.x2 - 0.1, x)); // don't push anyone off
+    if (Math.sign(x - f.x) === Math.sign(dx)) f.x = x;
+  }
+
+  // A parry landed: flash, freeze, and say so.
+  onParry(f, attacker) {
+    const x = (f.x + attacker.x) / 2;
+    const y = f.y + f.h * 0.6;
+    this.effects.parry(x, y);
+    this.effects.text(f.x, f.y + f.h + 0.5, 'PARRY!', '#7ef9ff', 0.55, 0.8);
+    this.shake = Math.max(this.shake, 0.35);
+    voice.say(f.character.id, 'parry', { chance: 0.7, cooldown: 2 });
   }
 
   // Hitboxes earlier in a move's list win when two of the same group overlap
@@ -293,6 +339,7 @@ export class Game {
     // Hits can spawn new projectiles mid-loop (Byron knocked out of his Lambo
     // leaves the car rolling), so they go in a fresh list that's kept too.
     const current = this.projectiles;
+    this.liveProjectiles = current; // everything flying this frame (Eli's GUCCI MORTY eats other shots)
     this.projectiles = [];
     const kept = current.filter((p) => {
       const def = p.hb;
@@ -322,8 +369,22 @@ export class Game {
             p.hits.set(v, p.age);
           }
           const result = v.takeHit(p, def, Math.sign(p.vx) || Math.sign(v.x - p.x) || 1, this);
+          if (result === 'parry') {
+            // Parried: shots fly back and are the parrier's now; clouds,
+            // cars and puddles just miss them; thrown pickups bonk off.
+            if (!def.pierce && !def.pickup && !def.drive) {
+              p.owner = v;
+              p.power = v.power;
+              p.vx = -(p.vx || 6) * 1.25;
+              p.vy = Math.max(p.vy, 2);
+              p.life = Math.max(p.life, 40);
+              p.hits.clear();
+              break;
+            }
+            if (!def.pickup) continue;
+          }
           if (!def.noKnockback) this.effects.spark(v.x, v.y + v.h * 0.6, p.owner.character.color, 0.4);
-          if (result !== 'counter') def.onHit?.(p, v, this, result);
+          if (result !== 'counter' && result !== 'parry') def.onHit?.(p, v, this, result);
           if (def.pickup) {
             // Bonk: bounce back off them and fall to the floor.
             p.spent = true;
@@ -341,6 +402,30 @@ export class Game {
       return alive;
     });
     this.projectiles = kept.concat(this.projectiles);
+  }
+
+  // An explosion (Byron's wrecked Lambo): hits everyone in range except
+  // `owner`, launching them away from the middle. hb is a hitbox (dmg, base,
+  // growth, angle) plus r.
+  blast(owner, x, y, hb) {
+    const source = { owner, power: owner.power, x, y };
+    for (const v of this.fighters) {
+      if (v === owner || v.dead || v.intangible) continue;
+      if (!circleHitsBox(x, y + 0.6, hb.r, v)) continue;
+      v.takeHit(source, hb, Math.sign(v.x - x) || 1, this);
+      this.effects.spark(v.x, v.y + v.h * 0.6, 0xffb02e, 0.6);
+    }
+    this.shake = Math.max(this.shake, 0.9);
+    this.flashScreen('#ffd27a');
+  }
+
+  // A quick full-screen flash over the game (explosions).
+  flashScreen(color) {
+    const el = document.createElement('div');
+    el.className = 'screen-flash';
+    el.style.background = color;
+    document.body.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
   }
 
   addShockwave(f) {
@@ -439,6 +524,7 @@ export class Game {
 
   // Voicelines named after a move (voicelines/<character>/<move>.mp3) play when it starts.
   onMoveStart(f, name) {
+    if (name === 'parry') return; // that line plays when a parry lands (onParry)
     voice.say(f.character.id, name, { chance: 0.6, cooldown: 2.5 });
   }
 

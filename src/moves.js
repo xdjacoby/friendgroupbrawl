@@ -308,7 +308,9 @@ export const DODGES = {
     onFrame(f) { f.vx *= 0.6; },
     pose: () => ({ crouch: 0.3, lean: -0.15 }),
   },
-  // Air dodge: shield in the air. Hold a direction to zip that way. Once per airtime.
+  // Air dodge: shield in the air. Hold a direction to dash that way (about
+  // 3 m). Each jump gets one. Dodge down-and-sideways into the floor to
+  // wavedash: you keep the speed and slide along the ground.
   airdodge: {
     total: 32, limb: 'dodge', scripted: true, aerial: true, intangible: [2, 18], landingLag: 10, hitboxes: [],
     onStart(f, input) {
@@ -317,10 +319,11 @@ export const DODGES = {
       f.airDodgeUsed = true;
       f.fastFalling = false;
     },
-    onFrame(f, frame) {
+    onFrame(f, frame, input, world) {
       const d = f.move.dir;
-      if (d && frame <= 12) {
-        const speed = 13 * (1 - frame / 16);
+      if (d && frame % 3 === 1 && frame <= 13) world?.effects.puff(f.x, f.y + 0.9, 0.25, 0xe8f4ff, 0);
+      if (d && frame <= 14) {
+        const speed = 19 * (1 - frame / 20);
         f.vx = d[0] * speed;
         f.vy = d[1] * speed;
       } else if (d) {
@@ -332,6 +335,26 @@ export const DODGES = {
       }
     },
     pose: () => CURL,
+  },
+  // Parry (its own button): a quick deflect. A hit landing on frames 1-8 does
+  // nothing and leaves the attacker stuck for a free punish (projectiles fly
+  // back). Miss it and you're open for a moment. Grabs go right through it.
+  parry: {
+    total: 30, limb: 'dodge', scripted: true, parry: [1, 8], landingLag: 6, hitboxes: [],
+    onStart(f) { f.vx *= 0.4; },
+    onFrame(f) {
+      f.vx *= 0.85;
+      if (!f.grounded) f.vy = Math.max(f.vy - 0.35, -4);
+    },
+    pose: keyframes([
+      [0, { ...REST }],
+      [2, {
+        lArm: [0.8, 0.1, -0.2], lFore: [0.85, 0.5, 0.15], rArm: [0.3, -0.7, 0.5], rFore: [0.6, 0.4, 0.4],
+        lean: -0.1, look: 0.05, lHand: 'open', lPalm: [1, 0.2, 0],
+      }],
+      [9, {}],
+      [18, { lArm: REST.lArm, lFore: REST.lFore, lean: 0.05, lHand: 'fist' }],
+    ]),
   },
   // Getup attack from the ledge (after climbing up).
   ledgeattack: {

@@ -19,14 +19,18 @@ const GRAB_HOLD_PER = 1.0; // ...plus this many per percent of damage they have
 const GRAB_CATCH = 8; // frames after catching someone before you can pummel or throw
 const GRAB_MASH = 5; // frames each button mash knocks off the hold
 const RELEASE_STUN = 14; // both stumble apart when a grab breaks
+const PARRY_FREEZE = 12; // both freeze for a beat when a parry lands
+const PARRY_STUN = 44; // ...then the attacker is stuck while the parrier is free: a free punish
+const WAVEDASH_FRICTION = 34; // slide after air dodging into the ground (m/s², normal is 40)
 
 const approach = (v, target, amount) =>
   v < target ? Math.min(v + amount, target) : Math.max(v - amount, target);
 
 export class Fighter {
-  constructor({ slot, character, controller, spawn, stocks }) {
+  constructor({ slot, character, controller, spawn, stocks, look = null }) {
     this.slot = slot;
     this.character = character;
+    this.look = look; // cosmetics from the character select: { model, accessory }
     this.controller = controller;
     this.spawn = spawn;
     const s = character.stats;
@@ -83,6 +87,10 @@ export class Fighter {
     this.lastHitBy = null;
     this.hitFlash = 0;
     this.slowTimer = 0;
+    this.dizzy = 0; // frames of seeing stars (parried, shield broken)
+    this.confused = 0; // frames with left and right swapped (Eli's brainrot)
+    this.status = {}; // things other characters put on you (e.g. brainrot stacks)
+    this.sliding = false; // wavedashing: less friction until the slide ends
     this.handEmpty = {}; // { right: true } after throwing the prop in that hand
     this.propReturn = null; // { side, timer }: a lost prop pops back into your hand
     this.powerBonus = 0; // e.g. +0.04 per snack Jacoby eats; lost on KO
@@ -120,6 +128,11 @@ export class Fighter {
       if (this.stocks > 0 && --this.respawnTimer <= 0) this.respawn(world);
       return;
     }
+    // Brainrotted: left is right and right is left.
+    if (this.confused > 0) {
+      if (this.hitlag === 0) this.confused--;
+      input = { ...input, x: -input.x, xPressed: -input.xPressed };
+    }
     if (this.hitlag > 0) {
       this.hitlag--;
       // Don't drop combo presses made during the hit freeze.
@@ -130,6 +143,7 @@ export class Fighter {
     if (this.hitFlash > 0) this.hitFlash--;
     if (this.dropTimer > 0) this.dropTimer--;
     if (this.slowTimer > 0) this.slowTimer--;
+    if (this.dizzy > 0) this.dizzy--;
     if (this.ledgeCooldown > 0) this.ledgeCooldown--;
     if (this.propReturn && --this.propReturn.timer <= 0) this.regainProp(this.propReturn.side, world);
     this.character.update?.(this, world); // per-frame character mechanics (cooldowns, meters)
@@ -175,6 +189,9 @@ export class Fighter {
   }
 
   handleActions(input, world) {
+    // Parry (its own button, ground or air): time it right before a hit lands.
+    if (input.parry) return this.startMove('parry', input, world);
+
     // Grab: the grab button, or attack while shielding (like Smash). Running
     // into it gives a dash grab. In the air the grab button air dodges.
     if (this.grounded && (input.grab || (input.attack && input.shield))) {
@@ -234,6 +251,7 @@ export class Fighter {
       this.vx = input.x * this.stats.airSpeed;
       this.kbx = this.kby = 0;
       this.fastFalling = false;
+      this.airDodgeUsed = false; // every jump gets its own air dodge
       if (Math.abs(input.x) > 0.2) this.facing = Math.sign(input.x);
     }
   }
@@ -347,10 +365,11 @@ export class Fighter {
 
     if (this.grounded) {
       this.vy = 0;
-      if (this.canAct && !this.shielding && !this.crouching) {
+      if (this.sliding && (Math.abs(this.vx) < 1 || this.move || this.hitstun)) this.sliding = false;
+      if (this.canAct && !this.shielding && !this.crouching && !this.sliding) {
         this.vx = approach(this.vx, input.x * s.runSpeed * slow, 70 * dt);
       } else if (!scripted) {
-        this.vx = approach(this.vx, 0, 40 * dt);
+        this.vx = approach(this.vx, 0, (this.sliding ? WAVEDASH_FRICTION : 40) * dt);
       }
     } else {
       if (!stunned && !scripted) {
@@ -390,7 +409,14 @@ export class Fighter {
       this.landingLag = 10;
     }
     const m = this.move;
-    if (m?.def.onLand) {
+    if (m?.name === 'airdodge' && m.dir && m.frame <= 20 && Math.abs(m.dir[0]) > 0.2) {
+      // Air dodge into the floor: wavedash. Keep the sideways speed and slide.
+      this.move = null;
+      this.vx = Math.sign(m.dir[0]) * Math.min(Math.max(Math.abs(this.vx), 8 + 4.5 * Math.abs(m.dir[0])), 13);
+      this.sliding = true;
+      this.landingLag = 6;
+      world?.effects.dirt(this.x, this.y + 0.05, -Math.sign(this.vx));
+    } else if (m?.def.onLand) {
       m.def.onLand(this, world);
     } else if (m && (m.def.aerial || m.name === 'uspecial')) {
       this.move = null;
@@ -398,10 +424,30 @@ export class Fighter {
     }
   }
 
-  // Returns 'chip', 'shield' or 'hit'.
+  // Returns 'parry', 'chip', 'counter', 'shield' or 'hit'.
   takeHit(attacker, hb, dir, world) {
     const power = attacker.power ?? 1;
     const source = attacker instanceof Fighter ? attacker : attacker.owner;
+
+    // Parry: a hit landing in the window does nothing, and a fighter who threw
+    // it is stuck seeing stars while we're free to act. Projectiles bounce back.
+    const parry = this.move?.def.parry;
+    if (parry && this.move.frame >= parry[0] && this.move.frame <= parry[1]) {
+      this.move = null;
+      this.hitlag = PARRY_FREEZE;
+      this.invuln = Math.max(this.invuln, PARRY_FREEZE + 8);
+      this.facing = Math.sign(source.x - this.x) || this.facing;
+      if (attacker instanceof Fighter) {
+        attacker.interruptMove(world);
+        attacker.hitlag = PARRY_FREEZE;
+        attacker.hitstun = Math.max(attacker.hitstun, PARRY_STUN);
+        attacker.dizzy = PARRY_FREEZE + PARRY_STUN;
+        attacker.kbx = -dir * 3;
+        attacker.shielding = false;
+      }
+      world.onParry?.(this, source);
+      return 'parry';
+    }
 
     // Gas-style hits (e.g. a lingering cloud): chip damage that seeps through shields, no knockback.
     if (hb.noKnockback) {
@@ -430,6 +476,7 @@ export class Fighter {
         this.shielding = false;
         this.shieldHP = SHIELD_MAX * 0.6;
         this.hitstun = 160; // shield break: dizzy
+        this.dizzy = 160;
         this.vy = 10;
         this.grounded = false;
         world.effects.shieldBreak(this);

@@ -60,15 +60,23 @@ const LAMBO_COOLDOWN = 240; // frames after it crashes before he can call it aga
 const fast = (f) => f.move.speed >= 11;
 
 // The empty car after he bails (or gets knocked out of it): it rolls on,
-// slowing down, then wrecks.
+// slowing down, then blows up. The explosion hits everyone near it but him.
+const EXPLOSION = { r: 1.9, dmg: 13, base: 9, growth: 0.95, angle: 60 };
 const LOOSE_LAMBO = {
   look: 'prop', prop: 'lambo', drive: true, gravity: 40, ride: 0.6, x: 0, y: 0, vy: 0, life: 75,
   r: 0.75, pierce: true, hitEvery: 40, dmg: 9, base: 7.5, growth: 0.8, angle: 45,
-  update(p) { p.vx *= 0.985; },
+  update(p, world) {
+    p.vx *= 0.985;
+    // About to blow: smoke pours out and it flashes.
+    if (p.life < 30 && p.age % 4 === 0) world.effects.puff(p.x - 0.8 * Math.sign(p.vx || 1), p.y + 0.9, 0.35, 0x45454c, 1.2);
+    if (p.life < 30) p.mesh.visible = p.life % 6 > 1;
+  },
   onEnd(p, world) {
-    world.effects.koBlast(p.x, p.y + 0.6, 0xffc400);
-    world.effects.puff(p.x, p.y + 0.8, 1.2, 0x555555, 1.5);
-    world.effects.text(p.x, p.y + 1.6, 'CRASH', '#ffc400', 0.5, 0.8);
+    const b = world.stage.blast;
+    if (p.y > b.bottom && p.x > b.left && p.x < b.right) {
+      world.effects.explosion(p.x, p.y, 1, 'KABOOM!');
+      world.blast(p.owner, p.x, p.y, EXPLOSION);
+    }
     p.owner.charState.lambo = null;
     p.owner.charState.lamboCooldown = LAMBO_COOLDOWN;
   },
@@ -105,8 +113,14 @@ export const BYRON = {
     if (f.charState.lamboCooldown > 0) f.charState.lamboCooldown--;
   },
 
-  // HUD: the Lambo's ready (🏎️) or "in the shop" (🔧).
-  hud: (f) => (f.charState.lambo || f.charState.lamboCooldown > 0 ? '🎧 🔧' : '🎧 🏎️'),
+  // HUD: the Lambo's ready, out driving, about to blow, or in the shop (with a countdown).
+  hud: (f) => {
+    const cs = f.charState;
+    if (cs.lambo === 'riding') return '🎧 🏎️💨';
+    if (cs.lambo === 'loose') return '🎧 🏎️💥';
+    if (cs.lamboCooldown > 0) return `🎧 🔧 ${Math.ceil(cs.lamboCooldown / 60)}s`;
+    return '🎧 🏎️ READY';
+  },
 
   poses: {
     base: { rProp: 'upright' },
@@ -128,7 +142,7 @@ export const BYRON = {
     prop: { name: 'lambo', x: 0.9, z: -5.0, yaw: -0.3 },
     pose: (frame) => {
       const p = { ...victoryPose(frame) };
-      if (frame < 60) p.rHeld = 'carKeys';
+      p.rHeld = frame < 60 ? 'carKeys' : null; // keys (then everything) in his pocket to fold his arms
       return p;
     },
     onFrame(frame, { effects, x, y }) {

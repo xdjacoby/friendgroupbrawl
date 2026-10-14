@@ -1,12 +1,13 @@
 import * as THREE from 'three';
+import { FONTS } from './fonts.js';
 
 // Speech bubble pictures are the same every time a phrase is shouted: draw each once.
 const bubbleTextures = new Map();
 
-function bubbleTexture(text, color) {
+export function bubbleTexture(text, color) {
   const key = `${text}|${color}`;
   if (bubbleTextures.has(key)) return bubbleTextures.get(key);
-  const font = '900 84px Impact, "Arial Black", system-ui, sans-serif';
+  const font = `84px ${FONTS.bubble}`;
   const canvas = document.createElement('canvas');
   let ctx = canvas.getContext('2d');
   ctx.font = font;
@@ -51,6 +52,54 @@ function bubbleTexture(text, color) {
   map.userData.cached = true; // shared by every bubble with this phrase
   const tex = { map, aspect: canvas.width / canvas.height };
   bubbleTextures.set(key, tex);
+  return tex;
+}
+
+// Comic starbursts are the same every time: draw each word once.
+const burstTextures = new Map();
+
+function burstTexture(word) {
+  if (burstTextures.has(word)) return burstTextures.get(word);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 320;
+  const ctx = canvas.getContext('2d');
+  const cx = 256;
+  const cy = 160;
+  ctx.beginPath();
+  const spikes = 18;
+  for (let i = 0; i <= spikes * 2; i++) {
+    const a = (i / (spikes * 2)) * Math.PI * 2;
+    const r = i % 2 ? 0.62 : 1 - (i % 4 === 0 ? 0 : 0.1);
+    const px = cx + Math.cos(a) * 250 * r;
+    const py = cy + Math.sin(a) * 150 * r;
+    if (i) ctx.lineTo(px, py);
+    else ctx.moveTo(px, py);
+  }
+  ctx.closePath();
+  const g = ctx.createRadialGradient(cx, cy, 10, cx, cy, 250);
+  g.addColorStop(0, '#fff7b0');
+  g.addColorStop(0.45, '#ffcf2e');
+  g.addColorStop(1, '#ff6a1a');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.lineWidth = 12;
+  ctx.strokeStyle = '#c4161c';
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  ctx.font = `92px ${FONTS.display}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 16;
+  ctx.strokeStyle = '#2a0e12';
+  ctx.strokeText(word, cx, cy + 6);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(word, cx, cy + 6);
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.userData.cached = true;
+  const tex = { map, aspect: canvas.width / canvas.height };
+  burstTextures.set(word, tex);
   return tex;
 }
 
@@ -245,13 +294,143 @@ export class Effects {
     }
   }
 
+  // A big cartoon explosion (Byron's Lambo wrecking): white flash, a fireball
+  // of layered orange balls, two shockwave rings, the car's wheels and chunks
+  // flying, sparks, smoke that hangs around, and a comic KABOOM.
+  explosion(x, y, scale = 1, word = 'KABOOM!') {
+    const s = scale;
+    this.flash(x, y + 0.6 * s, 3.2 * s);
+    const add = THREE.AdditiveBlending;
+    // Fireball: hot core first, then the outer layers bloom a moment later.
+    const fire = [0xfff6c8, 0xffd23f, 0xff9a1f, 0xff5a1f, 0xd8321a];
+    fire.forEach((color, i) => {
+      for (let k = 0; k < 2; k++) {
+        const mesh = new THREE.Mesh(this.sphere, new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false, blending: add }));
+        const ox = (Math.random() - 0.5) * 0.9 * s;
+        const oy = (0.3 + Math.random() * 0.7) * s;
+        mesh.position.set(x + ox, y + oy, 0.4 + Math.random() * 0.4);
+        const delay = i * 0.05;
+        const size = (0.7 + i * 0.35 + Math.random() * 0.4) * s;
+        this.add(mesh, 0.75 + i * 0.08, (m, t) => {
+          const u = Math.max(0, t - delay) / (1 - delay);
+          m.scale.setScalar(size * (0.2 + Math.sqrt(u) * 1.6));
+          m.position.y += 0.012 * s;
+          m.material.opacity = u <= 0 ? 0 : 0.9 * (1 - u) ** 1.4;
+        });
+      }
+    });
+    // A flat ring along the ground and a ring facing the camera.
+    for (const [flat, color, size, life] of [[true, 0xffe2a0, 4.2, 0.5], [false, 0xffffff, 3.2, 0.35]]) {
+      const ring = new THREE.Mesh(this.ring, new THREE.MeshBasicMaterial({ color, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+      if (flat) ring.rotation.x = -Math.PI / 2;
+      ring.position.set(x, flat ? y + 0.08 : y + 0.7 * s, flat ? 0 : 0.9);
+      this.add(ring, life, (m, t) => {
+        m.scale.setScalar(size * s * (0.15 + t));
+        m.material.opacity = 0.95 * (1 - t) ** 2;
+      });
+    }
+    // The wheels come off, plus chunks of yellow bodywork and black trim.
+    this.wheelGeo ??= new THREE.CylinderGeometry(0.25, 0.25, 0.2, 14).rotateX(Math.PI / 2);
+    this.chunkGeo ??= new THREE.BoxGeometry(1, 0.55, 0.4);
+    for (let i = 0; i < 4; i++) this.flying(this.wheelGeo, 0x1b1b1f, x, y + 0.5, s, { speed: 6, up: 10, spin: 14, life: 1.6, size: 1 });
+    for (let i = 0; i < 9; i++) {
+      const color = i % 3 ? 0xffc400 : 0x2a2a30;
+      this.flying(this.chunkGeo, color, x, y + 0.6, s, { speed: 7, up: 9, spin: 18, life: 1.3, size: 0.18 + Math.random() * 0.22 });
+    }
+    // Sparks.
+    for (let i = 0; i < 22; i++) {
+      const mesh = new THREE.Mesh(this.sphere, new THREE.MeshBasicMaterial({ color: 0xffe680, transparent: true, depthWrite: false, blending: add }));
+      mesh.position.set(x, y + 0.6 * s, 0.7);
+      const a = Math.random() * Math.PI * 2;
+      const v = (5 + Math.random() * 9) * s;
+      let vx = Math.cos(a) * v;
+      let vy = Math.abs(Math.sin(a)) * v + 2;
+      const size = 0.04 + Math.random() * 0.05;
+      this.add(mesh, 0.5 + Math.random() * 0.4, (m, t) => {
+        vy -= 22 / 60;
+        vx *= 0.97;
+        m.position.x += vx / 60;
+        m.position.y += vy / 60;
+        m.scale.set(size * 2.2, size, size);
+        m.rotation.z = Math.atan2(vy, vx);
+        m.material.opacity = 1 - t;
+      });
+    }
+    // Smoke that rolls up and hangs around after the fire's gone.
+    for (let i = 0; i < 9; i++) {
+      const mesh = new THREE.Mesh(this.sphere, new THREE.MeshStandardMaterial({ color: i % 2 ? 0x3a3a40 : 0x5a5a62, transparent: true, opacity: 0, roughness: 1, depthWrite: false }));
+      mesh.position.set(x + (Math.random() - 0.5) * 1.6 * s, y + (0.4 + Math.random() * 0.6) * s, -0.2 - Math.random() * 0.5);
+      const rise = (0.6 + Math.random() * 0.9) * s;
+      const size = (0.5 + Math.random() * 0.5) * s;
+      const delay = 0.08 + i * 0.025;
+      this.add(mesh, 2.4, (m, t) => {
+        const u = Math.max(0, t - delay) / (1 - delay);
+        m.position.y += (rise / 60) * (1 - u);
+        m.scale.setScalar(size * (0.5 + u * 1.8));
+        m.material.opacity = u <= 0 ? 0 : 0.75 * Math.min(1, u * 6) * (1 - u);
+      });
+    }
+    this.burst(x, y + 2.4 * s, word, 1.25 * s);
+  }
+
+  // Something knocked flying with gravity and a tumble (explosion debris).
+  flying(geo, color, x, y, s, { speed, up, spin, life, size }) {
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.5, transparent: true }));
+    mesh.position.set(x + (Math.random() - 0.5) * 0.6, y, (Math.random() - 0.5) * 0.8);
+    mesh.scale.setScalar(size * s);
+    let vx = (Math.random() - 0.5) * 2 * speed * s;
+    let vy = (0.5 + Math.random() * 0.7) * up * s;
+    const sx = (Math.random() - 0.5) * spin;
+    const sz = (Math.random() - 0.5) * spin;
+    this.add(mesh, life, (m, t) => {
+      vy -= 24 / 60;
+      vx *= 0.99;
+      m.position.x += vx / 60;
+      m.position.y += vy / 60;
+      m.rotation.x += sx / 60;
+      m.rotation.z += sz / 60;
+      m.material.opacity = t > 0.8 ? 1 - (t - 0.8) / 0.2 : 1;
+    });
+  }
+
+  // A comic-book sound effect: big jagged starburst with the word on it.
+  burst(x, y, word, size = 1) {
+    const { map, aspect } = burstTexture(word);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthTest: false }));
+    sprite.renderOrder = 13;
+    sprite.position.set(x, y, 1.2);
+    const tilt = (Math.random() - 0.5) * 0.4;
+    this.add(sprite, 1.3, (m, t) => {
+      const pop = t < 0.1 ? 0.3 + (t / 0.1) * 1.0 : 1.3 - Math.min(0.3, (t - 0.1) * 1.2);
+      m.scale.set(size * 2 * aspect * pop, size * 2 * pop, 1);
+      m.material.rotation = tilt + Math.sin(t * 30) * 0.03 * (1 - t);
+      m.position.y = y + t * 0.4;
+      m.material.opacity = t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1;
+    });
+  }
+
+  // Parry: a bright ring snapping out from the contact point, plus a flash.
+  parry(x, y) {
+    this.flash(x, y, 0.9);
+    for (let i = 0; i < 2; i++) {
+      const mesh = new THREE.Mesh(this.ring, new THREE.MeshBasicMaterial({ color: i ? 0xffffff : 0x7ef9ff, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+      mesh.position.set(x, y, 0.9);
+      mesh.renderOrder = 11;
+      this.add(mesh, 0.32 + i * 0.1, (m, t) => {
+        m.scale.setScalar(0.3 + t * (1.6 + i));
+        m.material.opacity = (1 - t) ** 1.5;
+      });
+    }
+    this.sparkle(x, y, 0xbff8ff, 8, 0.8);
+  }
+
   shieldBreak(f) {
     this.koBlast(f.x, f.y + 1, 0x99ccff);
   }
 
   // Cartoon text that pops up and floats away (heal numbers, "?", "CHOMP!").
   text(x, y, str, color = '#ffffff', size = 0.55, life = 1.0) {
-    const font = '900 92px system-ui, sans-serif';
+    const font = `92px ${FONTS.bubble}`;
     const canvas = document.createElement('canvas');
     let ctx = canvas.getContext('2d');
     ctx.font = font;

@@ -1,26 +1,26 @@
 // Turns keyboards, gamepads and the CPU into one per-frame input shape:
-//   { x, y, jump, jumpHeld, attack, special, specialHeld, grab, shield,
+//   { x, y, jump, jumpHeld, attack, special, specialHeld, grab, parry, shield,
 //     shieldPressed, downPressed, xPressed, pause }
-// x/y are -1..1 with +y = up. jump/attack/special/grab/shieldPressed/downPressed/pause
+// x/y are -1..1 with +y = up. jump/attack/special/grab/parry/shieldPressed/downPressed/pause
 // are "pressed this frame" edges; xPressed is -1/1 on the frame left/right is
 // pressed (else 0); jumpHeld/specialHeld/shield are held states.
 
 const KEYMAPS = {
   kb1: {
     left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'],
-    jump: ['KeyW', 'Space'], attack: ['KeyF'], special: ['KeyG'], shield: ['KeyH'], grab: ['KeyJ'],
+    jump: ['KeyW', 'Space'], attack: ['KeyF'], special: ['KeyG'], shield: ['KeyH'], grab: ['KeyJ'], parry: ['KeyK'],
   },
   kb2: {
     left: ['ArrowLeft'], right: ['ArrowRight'], up: ['ArrowUp'], down: ['ArrowDown'],
     jump: ['ArrowUp'], attack: ['Comma', 'Numpad1'], special: ['Period', 'Numpad2'], shield: ['Slash', 'Numpad3'],
-    grab: ['KeyM', 'Numpad0'],
+    grab: ['KeyM', 'Numpad0'], parry: ['KeyN', 'NumpadDecimal'],
   },
 };
 
 export const CONTROL_HELP = {
-  kb1: 'Move WASD · Crouch S · Jump W/Space · Attack F · Special G · Shield/Dodge H · Grab J',
-  kb2: 'Move Arrows · Crouch ↓ · Jump ↑ · Attack , · Special . · Shield/Dodge / · Grab M',
-  gamepad: 'Stick/D-pad move · A/Y jump · X attack · B special · Triggers shield/dodge · Bumpers grab',
+  kb1: 'Move WASD · Crouch S · Jump W/Space · Attack F · Special G · Shield/Dodge H · Grab J · Parry K',
+  kb2: 'Move Arrows · Crouch ↓ · Jump ↑ · Attack , · Special . · Shield/Dodge / · Grab M · Parry N',
+  gamepad: 'Stick/D-pad move · A/Y jump · X attack · B special · Triggers shield/dodge · LB grab · RB parry',
 };
 
 const held = new Set();
@@ -50,7 +50,7 @@ export function endInputFrame() {
 
 const blank = () => ({
   x: 0, y: 0, jump: false, jumpHeld: false, attack: false, special: false, specialHeld: false,
-  grab: false, shield: false, shieldPressed: false, downPressed: false, xPressed: 0, pause: false,
+  grab: false, parry: false, shield: false, shieldPressed: false, downPressed: false, xPressed: 0, pause: false,
 });
 
 class KeyboardController {
@@ -71,6 +71,7 @@ class KeyboardController {
     out.special = wasPressed('special');
     out.specialHeld = isHeld('special');
     out.grab = wasPressed('grab');
+    out.parry = wasPressed('parry');
     out.shield = isHeld('shield');
     out.shieldPressed = wasPressed('shield');
     out.downPressed = wasPressed('down');
@@ -105,9 +106,10 @@ class GamepadController {
       jump: btn(0) || btn(3),
       attack: btn(2),
       special: btn(1),
-      // Smash layout: triggers shield, bumpers grab.
+      // Smash layout: triggers shield, left bumper grabs; right bumper parries.
       shield: btn(6) || btn(7),
-      grab: btn(4) || btn(5),
+      grab: btn(4),
+      parry: btn(5),
       down: y < -0.7,
       left: x < -0.7,
       right: x > 0.7,
@@ -122,6 +124,7 @@ class GamepadController {
     out.special = edge('special');
     out.specialHeld = now.special;
     out.grab = edge('grab');
+    out.parry = edge('parry');
     out.shield = now.shield;
     out.shieldPressed = edge('shield');
     out.downPressed = edge('down');
@@ -269,8 +272,16 @@ class CpuController {
       return out;
     }
 
-    // React to an attack starting right next to us: shield, roll away, spot
-    // dodge, or duck under it if it's aimed high.
+    // React to an attack starting right next to us: parry it (timed to its
+    // first hitbox), shield, roll away, spot dodge, or duck under it if it's aimed high.
+    if (this.parryIn > 0 && --this.parryIn === 0) return { ...out, parry: true };
+    if (dist < 2.4 && target.move && target.move.frame <= 1 && !target.move.def.intangible && Math.random() < 0.22) {
+      const first = Math.min(...target.move.def.hitboxes.map((hb) => hb.start), 99);
+      if (first < 40) {
+        this.parryIn = Math.max(1, first - 3 - Math.floor(Math.random() * 4));
+        return out;
+      }
+    }
     if (dist < 2 && target.move && target.move.frame <= 1 && !target.move.def.intangible && me.grounded) {
       const r = Math.random();
       const high = target.move.def.hitboxes.length > 0 && target.move.def.hitboxes.every((hb) => (hb.y ?? 0) - hb.r > 1.0);

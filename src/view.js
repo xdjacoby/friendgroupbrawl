@@ -4,6 +4,10 @@ import { computePose } from './poses.js';
 import { Puppet } from './puppet.js';
 import { createProp } from './props.js';
 import { loadModel } from './models.js';
+import { prepareModel } from './rig.js';
+import { ACCESSORIES, dress } from './cosmetics.js';
+import { FONTS } from './fonts.js';
+import { bubbleTexture } from './effects.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const NEG_Y = new THREE.Vector3(0, -1, 0);
@@ -14,6 +18,7 @@ const _dir = new THREE.Vector3();
 const _bodyQuat = new THREE.Quaternion();
 const _invBody = new THREE.Quaternion();
 const _spin = new THREE.Quaternion();
+const _q = new THREE.Quaternion();
 
 function capsule(radius, length, material) {
   const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 4, 10), material);
@@ -49,10 +54,14 @@ export class FighterView {
     this.buildPlaceholder(fighter.character.color);
     this.buildShield(slotColor);
     this.buildMarker(slotColor, `P${fighter.slot + 1}`);
+    this.buildDizzy();
     this.buildProps(fighter.character.props);
     this.root.scale.setScalar(fighter.stats.scale);
+    this.dressUp(null);
 
-    if (fighter.character.model) this.tryLoadModel(fighter.character.model);
+    // The outfit picked on the character select, or their usual model.
+    const model = fighter.look?.model ?? fighter.character.model;
+    if (model) this.tryLoadModel(model);
     for (const url of fighter.character.preload ?? []) loadModel(url); // e.g. Byron's Lambo
   }
 
@@ -129,7 +138,7 @@ export class FighterView {
     canvas.height = 96;
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = color;
-    ctx.font = 'bold 54px system-ui, sans-serif';
+    ctx.font = `62px ${FONTS.display}`;
     ctx.textAlign = 'center';
     ctx.fillText(text, 64, 52);
     ctx.beginPath();
@@ -143,6 +152,37 @@ export class FighterView {
     sprite.renderOrder = 10;
     this.root.add(sprite);
     this.marker = sprite;
+  }
+
+  // Stars circling the head while dizzy (parried, shield broken).
+  buildDizzy() {
+    const shape = new THREE.Shape();
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
+      const r = i % 2 ? 0.045 : 0.1;
+      if (i) shape.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      else shape.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    const geo = new THREE.ShapeGeometry(shape);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffe14a, side: THREE.DoubleSide });
+    this.dizzy = new THREE.Group();
+    for (let i = 0; i < 3; i++) {
+      const star = new THREE.Mesh(geo, mat);
+      star.userData.a = (i / 3) * Math.PI * 2;
+      this.dizzy.add(star);
+    }
+    this.dizzy.position.y = 2.05;
+    this.dizzy.visible = false;
+    this.root.add(this.dizzy);
+    // Brainrotted (Eli): a speech bubble over the head while the controls are swapped.
+    const { map, aspect } = bubbleTexture('BRAINROTTED', '#a259ff');
+    this.rotBubble = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false, depthTest: false }));
+    this.rotBubble.scale.set(0.42 * aspect, 0.42, 1);
+    this.rotBubble.position.y = 2.75;
+    this.rotBubble.renderOrder = 9;
+    this.rotBubble.visible = false;
+    this.rotBubble.userData.cached = true; // the bubble picture is shared
+    this.root.add(this.rotBubble);
   }
 
   // character.props = { right: 'bong', left: 'dabPen' }. Moves can also put
@@ -175,6 +215,9 @@ export class FighterView {
   async tryLoadModel(url) {
     const gltf = await loadModel(url);
     if (!gltf) return;
+    // Measures the hands, body and head once per file (and gives mitten
+    // hands their finger joints) before any copies are made.
+    const rig = prepareModel(gltf);
     const model = SkeletonUtils.clone(gltf.scene);
 
     // Normalize: 1.8m tall, feet at y = 0, centered.
@@ -237,7 +280,7 @@ export class FighterView {
     this.model = holder;
     this.body.add(holder);
 
-    this.puppet = Puppet.from(model);
+    this.puppet = Puppet.from(model, rig);
     if (this.puppet) {
       const b = this.puppet.b;
       this.sockets = {
@@ -245,12 +288,23 @@ export class FighterView {
         left: { hand: b.lHand, elbow: b.lFore },
       };
     }
+    this.dressUp(this.puppet ? rig : null);
 
     if (gltf.animations.length) {
       this.mixer = new THREE.AnimationMixer(model);
       this.clips = {};
       for (const clip of gltf.animations) this.clips[clip.name.toLowerCase()] = this.mixer.clipAction(clip);
     }
+  }
+
+  // The accessory from the character select (a hat, shades...) plus anything
+  // the character always wears (Andrew's CGM), stuck onto the body.
+  dressUp(rig) {
+    for (const w of this.worn ?? []) w.mount.removeFromParent();
+    const items = [...(this.f.character.wear ?? [])];
+    const extra = ACCESSORIES.find((a) => a.id && a.id === this.f.look?.accessory);
+    if (extra) items.push({ id: extra.id, spot: extra.spot });
+    this.worn = dress(this, items, rig);
   }
 
   // Find an animation clip whose name contains one of the given words.
@@ -284,6 +338,20 @@ export class FighterView {
     this.root.position.set(f.x, f.y, this.z);
     const targetYaw = f.facing > 0 ? 0 : Math.PI;
     this.body.rotation.y = lerp(this.body.rotation.y, targetYaw, Math.min(1, dt * 20));
+
+    this.dizzy.visible = f.dizzy > 0;
+    this.rotBubble.visible = f.confused > 0;
+    if (f.confused > 0) {
+      this.rotBubble.material.rotation = Math.sin(time * 7) * 0.15;
+      this.rotBubble.material.opacity = f.confused < 30 ? f.confused / 30 : 1;
+    }
+    if (f.dizzy > 0) {
+      for (const s of this.dizzy.children) {
+        const a = s.userData.a + time * 5;
+        s.position.set(Math.cos(a) * 0.32, Math.sin(time * 9 + s.userData.a) * 0.04, Math.sin(a) * 0.32);
+        s.rotation.z = time * 6;
+      }
+    }
 
     // Shield bubble
     this.shield.visible = f.shielding;
@@ -320,10 +388,15 @@ export class FighterView {
 
     // Attacks follow their keyframes closely so the swing lines up with the hitbox.
     const k = Math.min(1, dt * (pose.state === 'attack' ? 45 : 22));
+    for (const w of this.worn) {
+      w.built.update?.(time);
+      w.item.update?.(w.built, f);
+    }
+    const held = this.heldProps(pose);
     if (this.rig) this.animatePlaceholder(pose, k);
-    else if (this.puppet) this.animatePuppet(pose, dt, k);
+    else if (this.puppet) this.animatePuppet(pose, dt, k, held);
     else this.animateModel(dt);
-    this.updateProps(pose);
+    this.placeProps(pose, held);
     this.updateMount(pose, dt);
   }
 
@@ -344,7 +417,7 @@ export class FighterView {
     props[name].roll?.(Math.abs(this.f.vx) * dt);
   }
 
-  animatePuppet(pose, dt, k) {
+  animatePuppet(pose, dt, k, held) {
     const f = this.f;
     this.model.position.y = lerp(this.model.position.y, -0.2 * pose.crouch, k);
     this.model.rotation.y = Math.PI / 2 + pose.spin;
@@ -357,12 +430,14 @@ export class FighterView {
       clip.timeScale = Math.max(0.7, Math.min(1.4, speed / 8));
       this.mixer.update(dt);
       this.model.updateMatrixWorld(true);
+      this.body.getWorldQuaternion(_bodyQuat);
+      this.puppet.applyHands(pose, _bodyQuat, { body: this.body, held });
       return;
     }
     this.stopClips();
     this.body.getWorldQuaternion(_bodyQuat);
     _bodyQuat.multiply(_spin.setFromAxisAngle(Y_AXIS, pose.spin));
-    this.puppet.apply(pose, _bodyQuat, k);
+    this.puppet.apply(pose, _bodyQuat, k, { body: this.body, held });
   }
 
   animateModel(dt) {
@@ -397,26 +472,46 @@ export class FighterView {
     this.rig.updateMatrixWorld(true);
   }
 
-  // Keep held props in the hands: 'club' lines the prop up with the forearm,
-  // 'upright' holds it vertical (e.g. lifting the bong to take a rip).
-  updateProps(pose) {
-    this.body.getWorldQuaternion(_invBody).invert();
+  // Which prop each hand shows this frame: its usual one, one a move swaps in
+  // (pose.rHeld / pose.lHeld), or nothing (thrown away). Only one is visible.
+  heldProps(pose) {
+    const held = {};
     for (const side of ['right', 'left']) {
-      const { holder, props } = this.hands[side];
-      const held = side === 'right' ? pose.rHeld : pose.lHeld;
-      const name = held !== undefined ? held : this.f.handEmpty[side] ? null : this.defaultProps[side];
+      const { props } = this.hands[side];
+      const swap = side === 'right' ? pose.rHeld : pose.lHeld;
+      const name = swap !== undefined ? swap : this.f.handEmpty[side] ? null : this.defaultProps[side];
       const prop = name ? this.handProp(side, name) : null;
       for (const p of Object.values(props)) if (p) p.object.visible = p === prop;
+      held[side] = prop;
+    }
+    return held;
+  }
+
+  // Rigged models: the puppet worked out where the prop sits in the closed
+  // hand (puppet.grips). The placeholder figure: 'club' lines the prop up
+  // with the forearm, 'upright' holds it vertical.
+  placeProps(pose, held) {
+    this.body.getWorldQuaternion(_invBody).invert();
+    for (const side of ['right', 'left']) {
+      const prop = held[side];
       if (!prop) continue;
+      const { holder } = this.hands[side];
       const { hand, elbow } = this.sockets[side];
-      hand.getWorldPosition(_hand);
-      elbow.getWorldPosition(_elbow);
-      _dir.subVectors(_hand, _elbow).normalize();
-      _hand.addScaledVector(_dir, this.puppet ? 0.07 : 0); // wrist -> palm
-      holder.position.copy(this.body.worldToLocal(_hand));
-      const mode = side === 'right' ? pose.rProp : pose.lProp;
-      if (mode === 'upright') holder.quaternion.identity();
-      else holder.quaternion.setFromUnitVectors(NEG_Y, _dir.applyQuaternion(_invBody));
+      const grip = this.puppet?.grips[side];
+      if (grip) {
+        _hand.copy(grip.pos).applyMatrix4(hand.matrixWorld);
+        holder.position.copy(this.body.worldToLocal(_hand));
+        holder.quaternion.copy(_invBody).multiply(hand.getWorldQuaternion(_q).multiply(grip.quat));
+      } else {
+        hand.getWorldPosition(_hand);
+        elbow.getWorldPosition(_elbow);
+        _dir.subVectors(_hand, _elbow).normalize();
+        _hand.addScaledVector(_dir, this.puppet ? 0.07 : 0); // wrist -> palm
+        holder.position.copy(this.body.worldToLocal(_hand));
+        const mode = side === 'right' ? pose.rProp : pose.lProp;
+        if (mode === 'upright') holder.quaternion.identity();
+        else holder.quaternion.setFromUnitVectors(NEG_Y, _dir.applyQuaternion(_invBody));
+      }
       prop.setGlow(pose.glow ?? 0);
     }
   }
