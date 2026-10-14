@@ -1,4 +1,4 @@
-import { MOVES, DODGES, pickAttack, pickSpecial } from './moves.js';
+import { MOVES, DODGES, GRABS, pickAttack, pickSpecial, hitboxPos } from './moves.js';
 
 export const STEP = 1 / 60;
 const KB_DECAY = 25; // knockback speed lost per second
@@ -12,6 +12,13 @@ const LEDGE_MAX = 300; // let go automatically after 5 seconds
 const LEDGE_INVULN = 45; // invincibility on grab (once per trip offstage)
 const LEDGE_COOLDOWN = 30; // frames before you can regrab after letting go
 const CLIMB_FRAMES = 12;
+const CROUCH_HEIGHT = 0.6; // hurtbox height while crouching (high attacks whiff)
+const CROUCH_KB = 0.85; // crouch cancel: take less knockback while crouching
+const GRAB_HOLD = 80; // frames before a grabbed fighter breaks free...
+const GRAB_HOLD_PER = 1.0; // ...plus this many per percent of damage they have
+const GRAB_CATCH = 8; // frames after catching someone before you can pummel or throw
+const GRAB_MASH = 5; // frames each button mash knocks off the hold
+const RELEASE_STUN = 14; // both stumble apart when a grab breaks
 
 const approach = (v, target, amount) =>
   v < target ? Math.min(v + amount, target) : Math.max(v - amount, target);
@@ -24,7 +31,7 @@ export class Fighter {
     this.spawn = spawn;
     const s = character.stats;
     this.stats = s;
-    this.moves = { ...MOVES, ...DODGES, ...character.moves }; // characters can replace any move
+    this.moves = { ...MOVES, ...DODGES, ...GRABS, ...character.moves }; // characters can replace any move
     this.weight = s.weight;
     this.hw = 0.38 * s.scale;
     this.h = 1.8 * s.scale;
@@ -38,6 +45,10 @@ export class Fighter {
 
   reset(x, y) {
     if (this.ledge) this.ledge.ledge.holder = null;
+    this.dropGrab();
+    this.holding = null; // { victim, timer, frame } while holding someone in a grab
+    this.heldBy = null; // the fighter holding us
+    this.crouching = false;
     this.ledge = null; // { ledge, timer, action, frame } while hanging
     this.ledgeCooldown = 0;
     this.ledgeInvulnReady = true;
@@ -75,6 +86,7 @@ export class Fighter {
     this.handEmpty = {}; // { right: true } after throwing the prop in that hand
     this.propReturn = null; // { side, timer }: a lost prop pops back into your hand
     this.powerBonus = 0; // e.g. +0.04 per snack Jacoby eats; lost on KO
+    this.speedMul = 1; // run/air speed multiplier (e.g. Andrew's sugar rush)
     this.charState = {}; // scratch space for character-specific mechanics
   }
 
@@ -87,6 +99,11 @@ export class Fighter {
     return this.stocks <= 0 && this.dead;
   }
 
+  // Hurtbox height: lower while crouching.
+  get hurtH() {
+    return this.crouching ? this.h * CROUCH_HEIGHT : this.h;
+  }
+
   // Can't be hit: respawn/ledge invincibility, dodge frames, or climbing up.
   get intangible() {
     if (this.invuln > 0 || this.ledge?.action) return true;
@@ -95,7 +112,7 @@ export class Fighter {
   }
 
   get canAct() {
-    return !this.move && this.hitstun === 0 && this.landingLag === 0 && this.jumpsquat === 0 && !this.helpless;
+    return !this.move && !this.holding && this.hitstun === 0 && this.landingLag === 0 && this.jumpsquat === 0 && !this.helpless;
   }
 
   step(input, world) {
@@ -115,10 +132,15 @@ export class Fighter {
     if (this.slowTimer > 0) this.slowTimer--;
     if (this.ledgeCooldown > 0) this.ledgeCooldown--;
     if (this.propReturn && --this.propReturn.timer <= 0) this.regainProp(this.propReturn.side, world);
+    this.character.update?.(this, world); // per-frame character mechanics (cooldowns, meters)
     this.prevX = this.x;
     this.prevY = this.y;
+    this.crouching = false; // handleActions sets it again while down is held
 
+    if (this.heldBy) return this.updateHeld(input);
     if (this.ledge) return this.updateLedge(input, world);
+    // The grab runs out (sooner if they mash) unless a throw has already started.
+    if (this.holding && !this.move?.def.throw && --this.holding.timer <= 0) this.releaseGrab();
 
     if (this.hitstun > 0) {
       this.hitstun--;
@@ -127,6 +149,8 @@ export class Fighter {
       this.landingLag--;
     } else if (this.move) {
       this.updateMove(input, world);
+    } else if (this.holding) {
+      this.updateHold(input, world);
     } else if (this.jumpsquat > 0) {
       this.updateJumpsquat(input);
     } else if (!this.helpless) {
@@ -137,6 +161,8 @@ export class Fighter {
 
     this.integrate(input);
     world.collide(this);
+    if (this.holding && !this.grounded) this.releaseGrab(); // pushed off the floor mid-grab
+    if (this.holding) this.placeHeld();
     world.tryLedgeGrab(this);
     world.checkBlastZone(this);
   }
@@ -149,13 +175,19 @@ export class Fighter {
   }
 
   handleActions(input, world) {
+    // Grab: the grab button, or attack while shielding (like Smash). Running
+    // into it gives a dash grab. In the air the grab button air dodges.
+    if (this.grounded && (input.grab || (input.attack && input.shield))) {
+      return this.startMove(Math.abs(this.vx) > this.stats.runSpeed * 0.6 ? 'dashgrab' : 'grab', input, world);
+    }
+
     // Dodges. Ground: shield + left/right rolls, shield + down spot dodges. Air: shield air dodges.
     if (this.grounded && input.shield) {
       const rollDir = input.xPressed || (input.shieldPressed && Math.abs(input.x) > 0.6 ? Math.sign(input.x) : 0);
       if (rollDir) return this.startMove('roll', { ...input, x: rollDir }, world);
       if (input.downPressed || (input.shieldPressed && input.y < -0.6)) return this.startMove('spotdodge', input, world);
     }
-    if (!this.grounded && input.shieldPressed && !this.airDodgeUsed) return this.startMove('airdodge', input, world);
+    if (!this.grounded && (input.shieldPressed || input.grab) && !this.airDodgeUsed) return this.startMove('airdodge', input, world);
 
     this.shielding = this.grounded && input.shield && this.shieldHP > 0;
     if (this.shielding) {
@@ -185,6 +217,9 @@ export class Fighter {
       this.platform = null;
       this.dropTimer = 12;
       this.y -= 0.05;
+    } else {
+      // Hold down to crouch: shorter hurtbox, less knockback, no walking.
+      this.crouching = this.grounded && input.y < -0.5;
     }
   }
 
@@ -219,7 +254,7 @@ export class Fighter {
 
   startMove(name, input, world) {
     let def = this.moves[name];
-    // Some moves need something you might not have (e.g. a thrown microscope):
+    // Some moves need something you might not have (e.g. a thrown magnifying glass):
     // `available(f)` says whether you can, `fallback` is what you do instead.
     if (def.available && !def.available(this)) {
       name = def.fallback;
@@ -228,6 +263,15 @@ export class Fighter {
     this.shielding = false;
     this.move = { name, def, frame: 0, hit: new Set() };
     def.onStart?.(this, input, world);
+    world?.onMoveStart?.(this, name);
+  }
+
+  // Something else ended our move early (a hit, a grab): let it clean up
+  // (e.g. Byron's Lamborghini keeps rolling without him).
+  interruptMove(world) {
+    const m = this.move;
+    this.move = null;
+    m?.def.onInterrupt?.(this, m, world);
   }
 
   // Can this move be used right now (rather than falling back to something else)?
@@ -242,6 +286,8 @@ export class Fighter {
     m.def.onFrame?.call(m.def, this, m.frame, input, world);
     if (this.move !== m) return; // onFrame can end the move (e.g. ground pound landing)
     if (m.def.projectileFrame === m.frame) world.spawnProjectile(this, m.def.projectile);
+    if (m.def.pummel?.frame === m.frame) this.pummelHeld(world);
+    if (m.def.throw?.frame === m.frame) this.throwHeld(world);
     // Jab combos: press attack again to roll into the next hit.
     const combo = m.def.combo;
     if (combo && input.attack) m.comboQueued = true;
@@ -255,17 +301,27 @@ export class Fighter {
   activeHitboxes() {
     const m = this.move;
     if (!m || this.hitlag > 0) return [];
-    return m.def.hitboxes.filter((hb) => m.frame >= hb.start && m.frame <= hb.end && !(hb.prop && this.handEmpty[hb.prop]));
+    return m.def.hitboxes.filter((hb) => m.frame >= hb.start && m.frame <= hb.end
+      && !(hb.prop && this.handEmpty[hb.prop]) && (!hb.when || hb.when(this)));
   }
 
   // Each hitbox `group` (default 0) can hit a given opponent once per move,
   // so multi-hit moves give each hit its own group.
+  // Long moves (a car driving around) can set `rehit`: frames until the same
+  // group can hit that victim again.
   hasHit(victim, hb) {
-    return this.move.hit.has(`${hb.group ?? 0}:${victim.slot}`);
+    const m = this.move;
+    const key = `${hb.group ?? 0}:${victim.slot}`;
+    if (!hb.rehit) return m.hit.has(key);
+    const at = m.hitAt?.get(key);
+    return at !== undefined && m.frame - at < hb.rehit;
   }
 
   markHit(victim, hb) {
-    this.move.hit.add(`${hb.group ?? 0}:${victim.slot}`);
+    const m = this.move;
+    const key = `${hb.group ?? 0}:${victim.slot}`;
+    m.hit.add(key);
+    (m.hitAt ??= new Map()).set(key, m.frame);
   }
 
   heal(amount, world) {
@@ -287,11 +343,11 @@ export class Fighter {
     const stunned = this.hitstun > 0;
     // Scripted moves (lunges, recoveries, ground pound) set their own velocity.
     const scripted = !!this.move?.def.scripted;
-    const slow = this.slowTimer > 0 ? 0.55 : 1;
+    const slow = (this.slowTimer > 0 ? 0.55 : 1) * this.speedMul;
 
     if (this.grounded) {
       this.vy = 0;
-      if (this.canAct && !this.shielding) {
+      if (this.canAct && !this.shielding && !this.crouching) {
         this.vx = approach(this.vx, input.x * s.runSpeed * slow, 70 * dt);
       } else if (!scripted) {
         this.vx = approach(this.vx, 0, 40 * dt);
@@ -356,6 +412,16 @@ export class Fighter {
       return 'chip';
     }
 
+    // Counter stance (Byron's Krav Maga): the hit whiffs and he answers it.
+    const counter = this.move?.def.counter;
+    if (counter && this.move.frame >= counter.start && this.move.frame <= counter.end) {
+      this.facing = Math.sign(source.x - this.x) || this.facing;
+      this.hitlag = 10;
+      if (attacker instanceof Fighter) attacker.hitlag = 10;
+      this.startMove(counter.then, { x: 0, y: 0 }, world);
+      return 'counter';
+    }
+
     if (this.shielding) {
       this.shieldHP -= hb.dmg * 1.3;
       this.hitlag = attacker.hitlag = Math.floor(3 + hb.dmg * 0.3);
@@ -373,10 +439,14 @@ export class Fighter {
 
     const dmg = hb.dmg * power;
     if (this.ledge) this.releaseLedge();
+    // Getting hit breaks any grab you're in, from either side.
+    if (this.holding) this.releaseGrab();
+    if (this.heldBy) this.heldBy.releaseGrab();
     this.airDodgeUsed = false;
     this.ledgeInvulnReady = true;
     this.percent = Math.min(999, this.percent + dmg);
-    const kb = (hb.base + hb.growth * this.percent * 0.19 * (100 / this.weight)) * (0.9 + 0.1 * power);
+    const crouchCancel = this.crouching ? CROUCH_KB : 1;
+    const kb = (hb.base + hb.growth * this.percent * 0.19 * (100 / this.weight)) * (0.9 + 0.1 * power) * crouchCancel;
     const rad = (hb.angle * Math.PI) / 180;
     this.kbx = Math.cos(rad) * kb * dir;
     this.kby = Math.sin(rad) * kb;
@@ -387,11 +457,12 @@ export class Fighter {
     }
     this.vx = 0;
     this.vy = 0;
-    this.move = null;
+    this.interruptMove(world);
     this.jumpsquat = 0;
     this.landingLag = 0;
     this.helpless = false;
     this.fastFalling = false;
+    this.crouching = false;
     this.upSpecialUsed = false;
     this.hitstun = Math.floor(kb * 1.15);
     this.hitlag = Math.floor(3 + dmg * 0.35);
@@ -401,6 +472,124 @@ export class Fighter {
     this.facing = -dir || this.facing;
     world.onHit(this, kb);
     return 'hit';
+  }
+
+  // ---- Grabs ----
+  // The grabber keeps `holding = { victim, timer, frame }`: timer counts down
+  // to the victim breaking free (mashing speeds it up), frame counts up from
+  // the catch. The victim gets `heldBy`. While holding: attack/grab pummels,
+  // a direction throws (moves with `throw` and `carry`, see moves.js).
+
+  catchFighter(v, world) {
+    // A long-range grab (Byron's earbud lasso) reels them in first.
+    const grab = this.move?.def.grab;
+    const reel = grab?.reel ?? 0;
+    this.move = null;
+    this.holding = {
+      victim: v, timer: Math.floor(GRAB_HOLD + reel + v.percent * GRAB_HOLD_PER), frame: 0,
+      reel: reel && { left: reel, total: reel, x: (v.x - this.x) * this.facing, y: v.y - this.y },
+    };
+    v.heldBy = this;
+    v.interruptMove(world);
+    grab?.onCatch?.(this, v, world);
+    v.shielding = false;
+    v.crouching = false;
+    v.jumpsquat = 0;
+    v.landingLag = 0;
+    v.hitstun = 0;
+    v.helpless = false;
+    v.fastFalling = false;
+    v.vx = v.vy = v.kbx = v.kby = 0;
+    v.grounded = this.grounded;
+    v.platform = this.platform;
+    this.placeHeld();
+  }
+
+  // Keep the victim in our hands: in front of us, or along the throw's `carry` path.
+  placeHeld() {
+    const H = this.holding;
+    const v = H.victim;
+    const s = this.stats.scale;
+    const carry = this.move?.def.carry;
+    let [ox, oy] = carry ? hitboxPos({ path: carry }, this.move.frame) : [(this.hw + v.hw) / s + 0.12, 0.05];
+    ox *= s;
+    oy *= s;
+    if (H.reel?.left > 0) {
+      // Being reeled in: slide from where they were caught into our hands.
+      const t = 1 - --H.reel.left / H.reel.total;
+      const e = t * t * (3 - 2 * t);
+      ox = H.reel.x + (ox - H.reel.x) * e;
+      oy = H.reel.y + (oy - H.reel.y) * e;
+    }
+    v.x = v.prevX = this.x + ox * this.facing;
+    v.y = v.prevY = this.y + oy;
+    v.facing = -this.facing;
+  }
+
+  updateHold(input, world) {
+    const H = this.holding;
+    if (input.attack || input.grab) H.pummel = true; // remembered through the catch
+    if (++H.frame < GRAB_CATCH + (H.reel?.total ?? 0)) return;
+    const fwd = input.x * this.facing;
+    let name = null;
+    if (input.y > 0.5) name = 'uthrow';
+    else if (input.y < -0.5) name = 'dthrow';
+    else if (fwd > 0.5) name = 'fthrow';
+    else if (fwd < -0.5) name = 'bthrow';
+    else if (H.pummel) name = 'pummel';
+    H.pummel = false;
+    if (name) this.startMove(name, input, world);
+  }
+
+  // Held: struggle. Every button press (or a tap left/right/down) shortens the hold.
+  updateHeld(input) {
+    const H = this.heldBy.holding;
+    const mash = input.attack || input.special || input.jump || input.grab || input.shieldPressed || input.xPressed || input.downPressed;
+    if (mash && !this.heldBy.move?.def.throw) H.timer -= GRAB_MASH;
+    this.vx = this.vy = this.kbx = this.kby = 0;
+  }
+
+  // Hurt whoever we're holding without letting go (pummels, burning them with a magnifying glass...).
+  pummelHeld(world, dmg = this.move.def.pummel.dmg) {
+    const v = this.holding?.victim;
+    if (!v) return;
+    dmg *= this.power;
+    v.percent = Math.min(999, v.percent + dmg);
+    v.hitFlash = 5;
+    v.lastHitBy = this;
+    this.hitlag = v.hitlag = 4;
+    world.effects.spark((this.x + v.x) / 2, v.y + v.h * 0.7, 0xfff2a8, 0.3);
+  }
+
+  throwHeld(world) {
+    const v = this.holding?.victim;
+    if (!v) return;
+    this.placeHeld();
+    this.holding = null;
+    v.heldBy = null;
+    v.takeHit(this, this.move.def.throw, this.facing, world);
+    world.effects.spark(v.x, v.y + v.h * 0.5, 0xffffff, 0.6);
+  }
+
+  // The grab breaks without a throw (escaped, or someone got hit): both stumble apart.
+  releaseGrab() {
+    const v = this.holding?.victim;
+    this.holding = null;
+    if (!v) return;
+    v.heldBy = null;
+    v.kbx = 6 * this.facing;
+    v.hitstun = Math.max(v.hitstun, RELEASE_STUN);
+    this.kbx = -4 * this.facing;
+    this.hitstun = Math.max(this.hitstun, RELEASE_STUN);
+    this.move = null;
+  }
+
+  // Forget any grab without the stumble (respawning).
+  dropGrab() {
+    if (this.holding) this.holding.victim.heldBy = null;
+    if (this.heldBy) this.heldBy.holding = null;
+    this.holding = null;
+    this.heldBy = null;
   }
 
   // ---- Ledge ----
@@ -485,6 +674,7 @@ export class Fighter {
   }
 
   die(world) {
+    this.dropGrab();
     this.dead = true;
     this.stocks--;
     this.falls++;

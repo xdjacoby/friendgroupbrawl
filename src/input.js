@@ -1,25 +1,26 @@
 // Turns keyboards, gamepads and the CPU into one per-frame input shape:
-//   { x, y, jump, jumpHeld, attack, special, shield, shieldPressed,
-//     downPressed, xPressed, pause }
-// x/y are -1..1 with +y = up. jump/attack/special/shieldPressed/downPressed/pause
+//   { x, y, jump, jumpHeld, attack, special, specialHeld, grab, shield,
+//     shieldPressed, downPressed, xPressed, pause }
+// x/y are -1..1 with +y = up. jump/attack/special/grab/shieldPressed/downPressed/pause
 // are "pressed this frame" edges; xPressed is -1/1 on the frame left/right is
-// pressed (else 0); jumpHeld/shield are held states.
+// pressed (else 0); jumpHeld/specialHeld/shield are held states.
 
 const KEYMAPS = {
   kb1: {
     left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'],
-    jump: ['KeyW', 'Space'], attack: ['KeyF'], special: ['KeyG'], shield: ['KeyH'],
+    jump: ['KeyW', 'Space'], attack: ['KeyF'], special: ['KeyG'], shield: ['KeyH'], grab: ['KeyJ'],
   },
   kb2: {
     left: ['ArrowLeft'], right: ['ArrowRight'], up: ['ArrowUp'], down: ['ArrowDown'],
     jump: ['ArrowUp'], attack: ['Comma', 'Numpad1'], special: ['Period', 'Numpad2'], shield: ['Slash', 'Numpad3'],
+    grab: ['KeyM', 'Numpad0'],
   },
 };
 
 export const CONTROL_HELP = {
-  kb1: 'Move WASD · Jump W/Space · Attack F · Special G · Shield/Dodge H',
-  kb2: 'Move Arrows · Jump ↑ · Attack , · Special . · Shield/Dodge /',
-  gamepad: 'Stick/D-pad move · A/Y jump · X attack · B special · Bumpers/Triggers shield/dodge',
+  kb1: 'Move WASD · Crouch S · Jump W/Space · Attack F · Special G · Shield/Dodge H · Grab J',
+  kb2: 'Move Arrows · Crouch ↓ · Jump ↑ · Attack , · Special . · Shield/Dodge / · Grab M',
+  gamepad: 'Stick/D-pad move · A/Y jump · X attack · B special · Triggers shield/dodge · Bumpers grab',
 };
 
 const held = new Set();
@@ -48,8 +49,8 @@ export function endInputFrame() {
 }
 
 const blank = () => ({
-  x: 0, y: 0, jump: false, jumpHeld: false, attack: false, special: false,
-  shield: false, shieldPressed: false, downPressed: false, xPressed: 0, pause: false,
+  x: 0, y: 0, jump: false, jumpHeld: false, attack: false, special: false, specialHeld: false,
+  grab: false, shield: false, shieldPressed: false, downPressed: false, xPressed: 0, pause: false,
 });
 
 class KeyboardController {
@@ -68,6 +69,8 @@ class KeyboardController {
     out.jumpHeld = isHeld('jump');
     out.attack = wasPressed('attack');
     out.special = wasPressed('special');
+    out.specialHeld = isHeld('special');
+    out.grab = wasPressed('grab');
     out.shield = isHeld('shield');
     out.shieldPressed = wasPressed('shield');
     out.downPressed = wasPressed('down');
@@ -102,7 +105,9 @@ class GamepadController {
       jump: btn(0) || btn(3),
       attack: btn(2),
       special: btn(1),
-      shield: btn(4) || btn(5) || btn(6) || btn(7),
+      // Smash layout: triggers shield, bumpers grab.
+      shield: btn(6) || btn(7),
+      grab: btn(4) || btn(5),
       down: y < -0.7,
       left: x < -0.7,
       right: x > 0.7,
@@ -115,6 +120,8 @@ class GamepadController {
     out.jumpHeld = now.jump;
     out.attack = edge('attack');
     out.special = edge('special');
+    out.specialHeld = now.special;
+    out.grab = edge('grab');
     out.shield = now.shield;
     out.shieldPressed = edge('shield');
     out.downPressed = edge('down');
@@ -131,16 +138,57 @@ class CpuController {
     this.cooldown = 30;
     this.jumpCooldown = 0;
     this.shieldFor = 0;
+    this.crouchFor = 0;
     this.ledgeWait = 0;
+    this.holdSpecial = 0;
+    this.holdPlan = null;
   }
 
   poll(me, world) {
+    const out = this.decide(me, world);
+    // Specials that charge while held (Draven's Hotbox) get held for a random while.
+    if (out.special) this.holdSpecial = Math.floor(Math.random() * 130);
+    out.specialHeld = out.special || this.holdSpecial-- > 0;
+    return out;
+  }
+
+  decide(me, world) {
     const out = blank();
     if (!me || me.dead) return out;
     if (this.cooldown > 0) this.cooldown--;
     if (this.jumpCooldown > 0) this.jumpCooldown--;
 
     const stage = world.stage.main;
+
+    // Grabbed: mash to break free.
+    if (me.heldBy) {
+      if (Math.random() < 0.15) out.attack = true;
+      else if (Math.random() < 0.2) out.xPressed = out.x = Math.random() < 0.5 ? -1 : 1;
+      return out;
+    }
+    // Holding someone: a pummel or two, then a throw. Back throw when the
+    // ledge is behind us and they're high enough to die, else toward the
+    // nearest edge; up/down throws to start juggles at low percent.
+    if (me.holding) {
+      if (me.move) return out;
+      if (!this.holdPlan) this.holdPlan = { wait: 10 + Math.floor(Math.random() * 25), pummels: Math.floor(Math.random() * 3) };
+      const plan = this.holdPlan;
+      if (--plan.wait > 0) return out;
+      if (plan.pummels > 0) {
+        plan.pummels--;
+        plan.wait = 4;
+        out.attack = true;
+        return out;
+      }
+      const v = me.holding.victim;
+      const behindIsEdge = me.facing > 0 ? me.x - stage.x1 < stage.x2 - me.x : stage.x2 - me.x < me.x - stage.x1;
+      const r = Math.random();
+      if (v.percent < 60 && r < 0.6) out.y = r < 0.3 ? 1 : -1;
+      else out.x = behindIsEdge ? -me.facing : me.facing;
+      this.holdPlan = null;
+      return out;
+    }
+    this.holdPlan = null;
 
     // Hanging on a ledge: wait a moment, then pick a getup option.
     if (me.ledge) {
@@ -183,7 +231,7 @@ class CpuController {
     const dist = Math.hypot(dx, dy);
     const targetOffstage = target.x < stage.x1 || target.x > stage.x2;
 
-    // Go fetch a thrown prop (Jacoby's microscope) when nobody is in our face.
+    // Go fetch a thrown prop (Jacoby's magnifying glass) when nobody is in our face.
     const dropped = world.projectiles.find((p) => p.owner === me && p.resting);
     if (dropped && dist > 2.5) {
       out.x = Math.abs(dropped.x - me.x) > 0.2 ? Math.sign(dropped.x - me.x) : 0;
@@ -197,12 +245,12 @@ class CpuController {
       return out;
     }
 
-    // Healing moves (Jacoby's snack dig) when there's room to breathe.
-    if (me.moves.dspecial.cpuHeal && me.grounded && dist > 6 && me.percent > 10 && this.cooldown === 0 && Math.random() < 0.03) {
-      out.y = -1;
-      out.special = true;
-      this.cooldown = 60;
-      return out;
+    // Character-specific habits (e.g. Jacoby digging, eating and throwing snacks).
+    const habit = this.cooldown === 0 && me.canAct ? me.character.cpu?.(me, { target, dist, dx, dy }) : null;
+    if (habit) {
+      if (habit.face) me.facing = Math.sign(dx) || me.facing;
+      this.cooldown = 40;
+      return { ...out, ...habit };
     }
 
     if (Math.abs(dx) > 1.4) {
@@ -221,10 +269,13 @@ class CpuController {
       return out;
     }
 
-    // React to an attack starting right next to us: shield, roll away, or spot dodge.
+    // React to an attack starting right next to us: shield, roll away, spot
+    // dodge, or duck under it if it's aimed high.
     if (dist < 2 && target.move && target.move.frame <= 1 && !target.move.def.intangible && me.grounded) {
       const r = Math.random();
-      if (r < 0.3) this.shieldFor = 20;
+      const high = target.move.def.hitboxes.length > 0 && target.move.def.hitboxes.every((hb) => (hb.y ?? 0) - hb.r > 1.0);
+      if (high && r < 0.35) this.crouchFor = 18;
+      else if (r < 0.3) this.shieldFor = 20;
       else if (r < 0.42) {
         out.shield = out.shieldPressed = true;
         out.x = -Math.sign(dx) || 1;
@@ -239,6 +290,19 @@ class CpuController {
       this.shieldFor--;
       out.shield = true;
       out.x = 0;
+      return out;
+    }
+    if (this.crouchFor > 0) {
+      this.crouchFor--;
+      out.y = -1;
+      return out;
+    }
+
+    // Grab people who sit in their shield (and sometimes anyone up close).
+    if (dist < 1.7 && me.grounded && target.grounded && this.cooldown === 0 && (target.shielding || Math.random() < 0.12)) {
+      me.facing = Math.sign(dx) || me.facing;
+      out.grab = true;
+      this.cooldown = 30;
       return out;
     }
 

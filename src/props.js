@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry as RoundedBox } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
 // Held props. Each is built with the grip at the origin and the "business end"
 // pointing down -y, so 'club' mode can line -y up with the forearm. +x is the
@@ -63,50 +64,31 @@ function dabPen() {
   };
 }
 
-// A chunky cartoon microscope. Held by its curved arm: the base hangs below
-// the hand (or swings out past it like a hammer head in 'club' mode).
-function microscope() {
+// A big cartoon magnifying glass. Held by the wooden handle; the lens sits
+// past the hand (out in front like a racket head in 'club' mode). The lens
+// faces the camera so it reads as a glass, with a shine across it.
+function magnifyingGlass() {
   const group = new THREE.Group();
-  const white = new THREE.MeshStandardMaterial({ color: 0xf4f2ec, roughness: 0.45 });
-  const black = new THREE.MeshStandardMaterial({ color: 0x23232b, roughness: 0.4 });
-  const chrome = new THREE.MeshStandardMaterial({ color: 0xc9d1dc, roughness: 0.2, metalness: 0.8 });
-  const lamp = new THREE.MeshStandardMaterial({ color: 0xfff3b0, emissive: 0xffd34d, emissiveIntensity: 0.6 });
-
-  const base = part(new THREE.BoxGeometry(0.13, 0.032, 0.1), white, -0.155, group);
-  base.position.x = 0.03;
-  const post = part(new THREE.CylinderGeometry(0.018, 0.022, 0.06, 10), white, -0.11, group);
-  post.position.x = -0.005;
-  // The curved arm (where the hand grips), opening toward the front.
-  const arm = part(new THREE.TorusGeometry(0.06, 0.017, 8, 16, Math.PI), white, -0.02, group);
-  arm.rotation.z = Math.PI / 2;
-  arm.position.x = 0.055;
-  const stage = part(new THREE.BoxGeometry(0.085, 0.01, 0.075), black, -0.07, group);
-  stage.position.x = 0.065;
-  const light = part(new THREE.CylinderGeometry(0.014, 0.014, 0.012, 10), lamp, -0.13, group);
-  light.position.x = 0.065;
-  const knob = part(new THREE.CylinderGeometry(0.024, 0.024, 0.07, 12).rotateX(Math.PI / 2), chrome, -0.05, group);
-  knob.position.x = 0.0;
-  // Body tube + eyepiece, tilted back toward the viewer like a real one.
-  const tube = part(new THREE.CylinderGeometry(0.022, 0.022, 0.12, 12), black, 0.07, group);
-  tube.position.x = 0.075;
-  tube.rotation.z = 0.25;
-  const eyepiece = part(new THREE.CylinderGeometry(0.015, 0.017, 0.05, 10), black, 0.15, group);
-  eyepiece.position.x = 0.055;
-  eyepiece.rotation.z = 0.35;
-  // Objective lenses with colored rings.
-  [0xe74c3c, 0xf1c40f, 0x3498db].forEach((ring, i) => {
-    const lens = part(new THREE.CylinderGeometry(0.008, 0.01, 0.035, 8), chrome, -0.025, group);
-    lens.position.x = 0.07 + (i - 1) * 0.016;
-    lens.rotation.z = (i - 1) * 0.25;
-    const band = part(new THREE.CylinderGeometry(0.0105, 0.0105, 0.006, 8), new THREE.MeshStandardMaterial({ color: ring }), -0.03, group);
-    band.position.x = lens.position.x;
-    band.rotation.z = lens.rotation.z;
+  const wood = new THREE.MeshStandardMaterial({ color: 0x8b4a22, roughness: 0.6 });
+  const brass = new THREE.MeshStandardMaterial({ color: 0xd9a628, roughness: 0.3, metalness: 0.6, emissive: 0x3a2a00 });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0xbfe8ff, transparent: true, opacity: 0.35, roughness: 0.05, emissive: 0x1a3a50, depthWrite: false,
   });
-  group.scale.setScalar(1.35);
+  const shine = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
+
+  part(new THREE.CylinderGeometry(0.02, 0.024, 0.15, 12), wood, 0.03, group); // handle
+  part(new THREE.SphereGeometry(0.024, 10, 8), wood, 0.105, group); // knob on the end
+  part(new THREE.CylinderGeometry(0.022, 0.018, 0.04, 12), brass, -0.065, group); // ferrule
+  part(new THREE.TorusGeometry(0.09, 0.014, 10, 32), brass, -0.175, group); // rim
+  part(new THREE.CylinderGeometry(0.088, 0.088, 0.008, 32).rotateX(Math.PI / 2), glass, -0.175, group); // lens
+  const glint = part(new THREE.PlaneGeometry(0.018, 0.09), shine, -0.15, group);
+  glint.position.set(-0.03, -0.15, 0.006);
+  glint.rotation.z = -0.6;
+  group.scale.setScalar(1.5); // chunky enough to read at gameplay distance
   return { object: group, setGlow() {} };
 }
 
-// ---- Snacks Jacoby digs up (held in the left hand while he eats) ----
+// ---- Snacks Jacoby digs up (held in his left hand until he eats or throws them) ----
 
 function chips() {
   const group = new THREE.Group();
@@ -180,21 +162,334 @@ function pizza() {
   return { object: group, setGlow() {} };
 }
 
-// A 2-liter of cola, cap toward -y so it sprays down when held under him.
-function soda() {
+// A family-size bag of chips, blown up like a balloon (they're mostly air).
+// Held by the bottom crimp with the bag above the hand ('upright'); `glow`
+// inflates it, from a limp bag at 0 to fully puffed at 1.
+function chipBag() {
   const group = new THREE.Group();
-  const bottle = new THREE.MeshStandardMaterial({ color: 0x7ad99a, transparent: true, opacity: 0.55, roughness: 0.1, depthWrite: false });
-  const cola = new THREE.MeshStandardMaterial({ color: 0x5a2d0c, roughness: 0.3 });
-  const red = new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.5 });
-  part(new THREE.CylinderGeometry(0.042, 0.042, 0.16, 14), cola, 0.07, group);
-  part(new THREE.CylinderGeometry(0.05, 0.05, 0.2, 16), bottle, 0.07, group);
-  part(new THREE.CylinderGeometry(0.052, 0.052, 0.06, 16), red, 0.07, group);
-  part(new THREE.CylinderGeometry(0.018, 0.05, 0.06, 14), bottle, -0.06, group);
-  part(new THREE.CylinderGeometry(0.021, 0.021, 0.025, 12), red, -0.1, group);
+  const bag = new THREE.Group();
+  group.add(bag);
+  const foil = new THREE.MeshStandardMaterial({ color: 0x2d7fd8, roughness: 0.3, metalness: 0.35 });
+  const label = new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.5 });
+  const crimp = new THREE.MeshStandardMaterial({ color: 0xcfd6de, roughness: 0.3, metalness: 0.6 });
+  const pillow = part(new THREE.SphereGeometry(0.2, 20, 14), foil, 0.32, bag);
+  pillow.scale.set(1.15, 1.45, 0.75);
+  const badge = part(new THREE.CircleGeometry(0.11, 20), label, 0.32, bag);
+  badge.position.z = 0.15;
+  part(new THREE.BoxGeometry(0.34, 0.035, 0.05), crimp, 0.02, bag);
+  part(new THREE.BoxGeometry(0.34, 0.035, 0.05), crimp, 0.62, bag);
+  group.scale.setScalar(1.5); // balloon-sized
+  return {
+    object: group,
+    setGlow(v) {
+      bag.scale.set(0.45 + 0.9 * v, 0.6 + 0.8 * v, 0.3 + 0.9 * v);
+    },
+  };
+}
+
+// ---- Eli ----
+
+// His phone: always out. `glow` lights up the screen (1 = camera flash).
+function phone() {
+  const group = new THREE.Group();
+  const caseMat = new THREE.MeshStandardMaterial({ color: 0x15151c, roughness: 0.4 });
+  const screen = new THREE.MeshStandardMaterial({ color: 0x111122, emissive: 0xff2d6f, emissiveIntensity: 0.25, roughness: 0.2 });
+  const lens = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0x000000 });
+  part(new THREE.BoxGeometry(0.075, 0.15, 0.012), caseMat, -0.06, group);
+  const face = part(new THREE.PlaneGeometry(0.066, 0.135), screen, -0.06, group);
+  face.position.z = 0.0065;
+  const back = part(new THREE.PlaneGeometry(0.066, 0.135), screen, -0.06, group);
+  back.position.z = -0.0065;
+  back.rotation.y = Math.PI;
+  const cam = part(new THREE.SphereGeometry(0.009, 8, 6), lens, -0.115, group);
+  cam.position.z = -0.008;
+  group.scale.setScalar(1.6);
+  return {
+    object: group,
+    setGlow(v) {
+      screen.emissiveIntensity = 0.25 + 0.75 * v;
+      screen.emissive.setHex(v > 0.9 ? 0xffffff : 0xff2d6f);
+      lens.emissive.setScalar(v > 0.9 ? 1 : 0);
+    },
+  };
+}
+
+// Selfie stick with the phone on the end (up air).
+function selfieStick() {
+  const group = new THREE.Group();
+  const metal = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: 0.3, metalness: 0.6 });
+  const grip = new THREE.MeshStandardMaterial({ color: 0x15151c, roughness: 0.6 });
+  part(new THREE.CylinderGeometry(0.018, 0.018, 0.14, 10), grip, 0, group);
+  part(new THREE.CylinderGeometry(0.01, 0.012, 0.72, 8), metal, -0.43, group);
+  const ph = phone();
+  ph.object.scale.setScalar(1.3);
+  ph.object.position.y = -0.76;
+  ph.setGlow(1);
+  group.add(ph.object);
   return { object: group, setGlow() {} };
 }
 
-const MAKERS = { bong, dabPen, microscope, chips, cookie, donut, pizza, soda };
+// A bottle of Prime (his up special spills it).
+function prime() {
+  const group = new THREE.Group();
+  const bottle = new THREE.MeshStandardMaterial({ color: 0x3df5ff, roughness: 0.25, transparent: true, opacity: 0.9 });
+  const label = new THREE.MeshStandardMaterial({ color: 0xff3fb4, roughness: 0.5 });
+  const cap = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
+  part(new THREE.CylinderGeometry(0.04, 0.042, 0.17, 14), bottle, 0.09, group);
+  part(new THREE.CylinderGeometry(0.043, 0.043, 0.07, 14), label, 0.09, group);
+  part(new THREE.CylinderGeometry(0.022, 0.04, 0.04, 14), bottle, 0.195, group);
+  part(new THREE.CylinderGeometry(0.023, 0.023, 0.03, 12), cap, 0.225, group);
+  group.scale.setScalar(1.5);
+  return { object: group, setGlow() {} };
+}
+
+// ---- Andrew ----
+
+// Insulin pen: blue body, a little window on the cartridge, orange dose dial
+// on top and the needle at the business end.
+function insulinPen() {
+  const group = new THREE.Group();
+  const body = new THREE.MeshStandardMaterial({ color: 0x2e86de, roughness: 0.35 });
+  const white = new THREE.MeshStandardMaterial({ color: 0xf2f4f8, roughness: 0.4 });
+  const dial = new THREE.MeshStandardMaterial({ color: 0xff8a1f, roughness: 0.4, emissive: 0x000000 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0xd8f3ff, transparent: true, opacity: 0.6, roughness: 0.1 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xc8ccd2, roughness: 0.2, metalness: 0.8 });
+  part(new THREE.CylinderGeometry(0.022, 0.022, 0.05, 12), dial, 0.08, group); // dose dial
+  part(new THREE.CylinderGeometry(0.02, 0.02, 0.12, 12), body, 0.0, group);
+  part(new THREE.CylinderGeometry(0.019, 0.019, 0.06, 12), glass, -0.09, group); // cartridge window
+  part(new THREE.CylinderGeometry(0.016, 0.019, 0.025, 12), white, -0.13, group);
+  part(new THREE.CylinderGeometry(0.0025, 0.0025, 0.05, 6), steel, -0.165, group); // needle
+  group.scale.setScalar(1.6);
+  return { object: group, setGlow(v) { dial.emissive.setRGB(0.6 * v, 0.25 * v, 0); } };
+}
+
+// Juice box with a bendy straw (down special: fixes a low).
+function juiceBox() {
+  const group = new THREE.Group();
+  const box = new THREE.MeshStandardMaterial({ color: 0x5cc243, roughness: 0.6 });
+  const label = new THREE.MeshStandardMaterial({ color: 0xe53935, roughness: 0.6 });
+  const straw = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
+  part(new THREE.BoxGeometry(0.075, 0.11, 0.05), box, 0.06, group);
+  part(new THREE.SphereGeometry(0.022, 10, 8), label, 0.06, group).position.z = 0.022;
+  const s1 = part(new THREE.CylinderGeometry(0.005, 0.005, 0.07, 6), straw, 0.145, group);
+  s1.position.x = 0.02;
+  const s2 = part(new THREE.CylinderGeometry(0.005, 0.005, 0.04, 6), straw, 0.185, group);
+  s2.position.x = 0.035;
+  s2.rotation.z = -0.9;
+  group.scale.setScalar(1.6);
+  return { object: group, setGlow() {} };
+}
+
+// A big French loaf (carbs!) he swings like a club.
+function bread() {
+  const group = new THREE.Group();
+  const crust = new THREE.MeshStandardMaterial({ color: 0xd9953f, roughness: 0.8 });
+  const score = new THREE.MeshStandardMaterial({ color: 0xf6d9a0, roughness: 0.9 });
+  const loaf = part(new THREE.CapsuleGeometry(0.06, 0.62, 4, 10), crust, -0.3, group);
+  loaf.scale.z = 0.85;
+  for (let i = 0; i < 4; i++) {
+    const cut = part(new THREE.CapsuleGeometry(0.012, 0.07, 2, 6), score, -0.08 - i * 0.15, group);
+    cut.position.z = 0.05;
+    cut.rotation.x = 0.25;
+    cut.rotation.z = 0.7;
+  }
+  return { object: group, setGlow() {} };
+}
+
+// Glucose meter with a test strip; the screen shows a reading.
+function glucoseMeter() {
+  const group = new THREE.Group();
+  const shell = new THREE.MeshStandardMaterial({ color: 0xe8ebf0, roughness: 0.4 });
+  const screen = new THREE.MeshStandardMaterial({ color: 0x9fe8a8, emissive: 0x2a6a32, roughness: 0.3 });
+  const strip = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
+  part(new THREE.BoxGeometry(0.06, 0.1, 0.022), shell, 0.05, group);
+  part(new THREE.PlaneGeometry(0.045, 0.035), screen, 0.065, group).position.z = 0.012;
+  part(new THREE.BoxGeometry(0.012, 0.04, 0.002), strip, 0.115, group);
+  group.scale.setScalar(1.7);
+  return { object: group, setGlow() {} };
+}
+
+// ---- Byron ----
+
+// Wired earbuds (his Lasso of Truth). Held by the cord with the buds dangling
+// ('upright'); `glow` pays the cord out from 0.25m to ~3.8m for whips and the lasso.
+function earbuds() {
+  const group = new THREE.Group();
+  const white = new THREE.MeshStandardMaterial({ color: 0xf4f6fa, roughness: 0.35 });
+  const grey = new THREE.MeshStandardMaterial({ color: 0x9aa0aa, roughness: 0.4 });
+  const cord = part(new THREE.CylinderGeometry(0.006, 0.006, 1, 6).translate(0, -0.5, 0), white, 0, group);
+  const end = new THREE.Group();
+  group.add(end);
+  for (const side of [-1, 1]) {
+    const lead = part(new THREE.CylinderGeometry(0.005, 0.005, 0.12, 6).translate(0, -0.06, 0), white, 0, end);
+    lead.rotation.z = side * 0.35;
+    const bud = part(new THREE.CapsuleGeometry(0.022, 0.03, 4, 8), white, -0.13, end);
+    bud.position.x = side * 0.045;
+    const tip = part(new THREE.SphereGeometry(0.018, 8, 6), grey, -0.16, end);
+    tip.position.x = side * 0.05;
+  }
+  end.scale.setScalar(1.5);
+  const set = (v) => {
+    const len = 0.25 + 3.6 * v;
+    cord.scale.y = len;
+    end.position.y = -len;
+  };
+  set(0);
+  return { object: group, setGlow: set };
+}
+
+// His car keys (for when the Lambo is "in the shop").
+function carKeys() {
+  const group = new THREE.Group();
+  const ring = new THREE.MeshStandardMaterial({ color: 0xc8ccd2, roughness: 0.3, metalness: 0.8 });
+  const fob = new THREE.MeshStandardMaterial({ color: 0x15151c, roughness: 0.4 });
+  const badge = new THREE.MeshStandardMaterial({ color: 0xffc400, roughness: 0.4 });
+  part(new THREE.TorusGeometry(0.025, 0.004, 6, 16), ring, -0.025, group);
+  part(new THREE.BoxGeometry(0.035, 0.06, 0.016), fob, -0.08, group);
+  part(new THREE.CircleGeometry(0.01, 6), badge, -0.075, group).position.z = 0.009;
+  group.scale.setScalar(1.8);
+  return { object: group, setGlow() {} };
+}
+
+// Wheels that turn as the vehicle rolls (roll(distance)).
+function wheels(group, spots, r, width) {
+  const tire = new THREE.MeshStandardMaterial({ color: 0x1b1b1f, roughness: 0.8 });
+  const rim = new THREE.MeshStandardMaterial({ color: 0xd8dde4, roughness: 0.25, metalness: 0.7 });
+  const list = [];
+  for (const [x, z] of spots) {
+    const w = new THREE.Group();
+    w.position.set(x, r, z);
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r, width, 18).rotateX(Math.PI / 2), tire);
+    t.castShadow = true;
+    w.add(t);
+    for (let i = 0; i < 3; i++) {
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(r * 1.5, r * 0.22, width + 0.02), rim);
+      spoke.rotation.z = (i / 3) * Math.PI;
+      w.add(spoke);
+    }
+    group.add(w);
+    list.push(w);
+  }
+  return (dist) => { for (const w of list) w.rotation.z -= dist / r; };
+}
+
+// Byron's Lamborghini (a roadster, so you can see him driving it). Sits on
+// the ground at the origin, nose toward +x.
+function lambo() {
+  const group = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial({ color: 0xffc400, roughness: 0.25, metalness: 0.2 });
+  const black = new THREE.MeshStandardMaterial({ color: 0x18181d, roughness: 0.5 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x223344, transparent: true, opacity: 0.55, roughness: 0.05 });
+  const light = new THREE.MeshBasicMaterial({ color: 0xfff6d0 });
+  const tail = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
+  const profile = new THREE.Shape();
+  [[-1.35, 0.25], [1.25, 0.25], [1.42, 0.36], [1.3, 0.48], [0.5, 0.62], [0.35, 0.6], [-0.55, 0.6],
+    [-0.7, 0.72], [-1.2, 0.76], [-1.4, 0.6]].forEach(([x, y], i) => (i ? profile.lineTo(x, y) : profile.moveTo(x, y)));
+  profile.closePath();
+  const body = new THREE.Mesh(new THREE.ExtrudeGeometry(profile, { depth: 1.0, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 2 }).translate(0, 0, -0.5), paint);
+  body.castShadow = true;
+  group.add(body);
+  // Black side intake and sill.
+  const intake = new THREE.Shape();
+  [[-0.65, 0.33], [-0.25, 0.33], [-0.45, 0.55], [-0.75, 0.55]].forEach(([x, y], i) => (i ? intake.lineTo(x, y) : intake.moveTo(x, y)));
+  const intakeMat = new THREE.MeshStandardMaterial({ color: 0x18181d, roughness: 0.5, side: THREE.DoubleSide });
+  for (const z of [-0.56, 0.56]) {
+    const m = new THREE.Mesh(new THREE.ShapeGeometry(intake), intakeMat);
+    m.position.z = z;
+    group.add(m);
+  }
+  const sill = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.06, 1.12), black);
+  sill.position.set(0, 0.27, 0);
+  group.add(sill);
+  // Windshield, slanted back over the cockpit.
+  const ws = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.42, 0.95), glass);
+  ws.position.set(0.37, 0.8, 0);
+  ws.rotation.z = 0.75;
+  group.add(ws);
+  // Rear wing.
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 1.15), black);
+  wing.position.set(-1.25, 0.98, 0);
+  group.add(wing);
+  for (const z of [-0.35, 0.35]) {
+    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.04), black);
+    strut.position.set(-1.2, 0.86, z);
+    group.add(strut);
+  }
+  // Lights.
+  for (const z of [-0.35, 0.35]) {
+    const h = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.22), light);
+    h.position.set(1.33, 0.43, z);
+    h.rotation.z = -0.5;
+    group.add(h);
+    const t = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.3), tail);
+    t.position.set(-1.43, 0.62, z);
+    group.add(t);
+  }
+  const roll = wheels(group, [[0.85, 0.5], [0.85, -0.5], [-0.85, 0.5], [-0.85, -0.5]], 0.3, 0.24);
+  return { object: group, setGlow() {}, roll };
+}
+
+// The FBI van that answers Eli's call. Black, "FBI" down the side, light bar.
+function fbiVan() {
+  const group = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial({ color: 0x15161b, roughness: 0.35, metalness: 0.2 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x334455, roughness: 0.05 });
+  const red = new THREE.MeshBasicMaterial({ color: 0xff2020 });
+  const blue = new THREE.MeshBasicMaterial({ color: 0x2060ff });
+  const body = new THREE.Mesh(new RoundedBox(3.2, 1.55, 1.3), paint);
+  body.position.set(0, 1.08, 0);
+  body.castShadow = true;
+  group.add(body);
+  const hood = new THREE.Mesh(new RoundedBox(0.7, 0.75, 1.28), paint);
+  hood.position.set(1.75, 0.68, 0);
+  group.add(hood);
+  const ws = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.6, 1.2), glass);
+  ws.position.set(1.62, 1.4, 0);
+  ws.rotation.z = 0.35;
+  group.add(ws);
+  const label = document.createElement('canvas');
+  label.width = 512;
+  label.height = 160;
+  const ctx = label.getContext('2d');
+  ctx.font = '900 130px Impact, "Arial Black", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffd400';
+  ctx.fillText('FBI', 256, 86);
+  const map = new THREE.CanvasTexture(label);
+  map.colorSpace = THREE.SRGBColorSpace;
+  for (const z of [-0.66, 0.66]) {
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.56), new THREE.MeshBasicMaterial({ map, transparent: true }));
+    sign.position.set(-0.2, 1.05, z);
+    if (z < 0) sign.rotation.y = Math.PI;
+    group.add(sign);
+  }
+  const bar = [];
+  for (const [z, mat] of [[-0.3, red], [0.3, blue]]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.5), mat);
+    l.position.set(0.9, 1.92, z);
+    group.add(l);
+    bar.push(l);
+  }
+  const rollWheels = wheels(group, [[1.1, 0.6], [1.1, -0.6], [-1.1, 0.6], [-1.1, -0.6]], 0.36, 0.26);
+  let t = 0;
+  return {
+    object: group,
+    setGlow() {},
+    roll(dist) {
+      rollWheels(dist);
+      t += dist;
+      const on = Math.floor(t * 1.5) % 2;
+      bar[0].visible = !!on;
+      bar[1].visible = !on;
+    },
+  };
+}
+
+const MAKERS = {
+  bong, dabPen, magnifyingGlass, chips, cookie, donut, pizza, chipBag,
+  phone, selfieStick, prime, insulinPen, juiceBox, bread, glucoseMeter, earbuds, carKeys, lambo, fbiVan,
+};
 
 export function createProp(name) {
   const make = MAKERS[name];

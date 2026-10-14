@@ -22,11 +22,23 @@
         <label title="Also toggled in a match with the ` key (left of 1)"><input type="checkbox" id="show-hitboxes" /> Show hitboxes</label>
         <button id="start" class="primary">Fight!</button>
       </div>
+      <div class="menu-row options">
+        <label title="Auto lowers the resolution a little when the frame rate drops">Graphics
+          <select id="quality">
+            <option value="auto">Auto (recommended)</option>
+            <option value="high">High</option>
+            <option value="fast">Fast (older laptops)</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="voices" checked /> Voices</label>
+        <label><input type="checkbox" id="show-fps" /> Show FPS</label>
+      </div>
       <p id="menu-hint" class="hint"></p>
+      <p class="hint">Model file too big for GitHub? <a href="shrink.html">Shrink it here</a>.</p>
       <details class="controls">
         <summary>Controls</summary>
         <ul id="control-list"></ul>
-        <p>Attack/special + a direction picks the move. Up + special is your recovery. Down on a floating platform drops through it. Shield + left/right rolls, shield + down spot dodges, shield in the air air-dodges. Fall next to the stage edge to grab the ledge, then press up/toward the stage to climb, jump to leap off, attack for a getup kick, shield to roll in, or down to let go. Tap attack again during a jab for a combo. Esc or Start pauses. The ` key shows hitboxes.</p>
+        <p>Attack/special + a direction picks the move. Up + special is your recovery. Down on a floating platform drops through it. Hold down to crouch (shorter, and you fly less far when hit). Shield + left/right rolls, shield + down spot dodges, shield in the air air-dodges. Grab (or attack while shielding) grabs: then attack to headbutt, or a direction to throw. Mash buttons to break out of a grab. Fall next to the stage edge to grab the ledge, then press up/toward the stage to climb, jump to leap off, attack for a getup kick, shield to roll in, or down to let go. Tap attack again during a jab for a combo. Esc or Start pauses. The ` key shows hitboxes.</p>
       </details>
     </section>
 
@@ -36,14 +48,21 @@
       <button id="quit">Quit to menu</button>
     </section>
 
-    <section id="results" class="screen overlay hidden">
-      <h2 id="winner"></h2>
-      <table id="standings"></table>
-      <div class="menu-row">
-        <button id="rematch" class="primary">Rematch</button>
-        <button id="to-menu">Menu</button>
+    <section id="results" class="screen hidden">
+      <div class="victory-banner">
+        <h2 id="winner"></h2>
+        <p id="quote"></p>
+      </div>
+      <div class="results-panel">
+        <table id="standings"></table>
+        <div class="menu-row">
+          <button id="rematch" class="primary">Rematch</button>
+          <button id="to-menu">Menu</button>
+        </div>
       </div>
     </section>
+
+    <div id="fps" class="fps hidden"></div>
 
     <script type="module" src="/src/main.js"></script>
   </body>
