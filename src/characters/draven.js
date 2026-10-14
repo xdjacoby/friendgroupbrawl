@@ -40,6 +40,24 @@ export const DRAVEN = {
   props: { right: 'bong', left: 'dabPen' },
   stats: { weight: 108, runSpeed: 7.5, airSpeed: 6, jump: 14.5, gravity: 36, maxFall: 13, power: 1.05, scale: 1.0 },
 
+  // Victory: one enormous rip from the bong, a cloud you could lose a car in,
+  // then the bong held up like a trophy.
+  victory: {
+    quote: 'Puff, puff... nah. Not passing.',
+    pose: keyframes([
+      [0, REST],
+      [14, { ...BONG_TO_MOUTH, look: 0.1 }],
+      [50, { look: 0.3, lean: -0.15 }],
+      [58, { rArm: [0.3, -0.9, 0.35], rFore: [0.5, -0.8, 0.2], rProp: 'club', look: 0.65, lean: -0.25 }],
+      [92, { look: 0.5, lean: -0.2 }],
+      [104, { rArm: [0.2, 1, 0.3], rFore: [0.1, 1, 0.2], lArm: [0.3, 0.6, -0.6], lFore: [0.5, 0.8, -0.2], look: 0.2, lean: 0, glow: 1 }],
+    ]),
+    onFrame(frame, { effects, x, y }) {
+      if (frame >= 20 && frame < 50 && frame % 6 === 0) effects.puff(x + 0.4, y + 0.95, 0.15, 0xd6ebcf, 0.8);
+      if (frame >= 58 && frame < 96 && frame % 3 === 0) effects.puff(x + 0.25 + (Math.random() - 0.5) * 0.8, y + 1.8, 0.3 + (frame - 58) / 110, 0xeeeef6, 1.0);
+    },
+  },
+
   // Resting with the bong hanging from his right hand and the pen held up in his left.
   poses: {
     idle: IDLE,

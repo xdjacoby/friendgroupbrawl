@@ -7,6 +7,7 @@ import { Effects } from './effects.js';
 import { Hud } from './hud.js';
 import { SLOT_COLORS } from './roster.js';
 import { createProp } from './props.js';
+import { voice } from './voice.js';
 
 const END_DELAY = 120; // frames to linger after the final KO
 
@@ -113,7 +114,7 @@ export class Game {
     for (const v of this.fighters) {
       if (v === a || v.dead || v.intangible || v.heldBy || v.holding || v.ledge) continue;
       if (!circleHitsBox(cx, cy, r, v)) continue;
-      a.catchFighter(v);
+      a.catchFighter(v, this);
       return;
     }
   }
@@ -129,17 +130,23 @@ export class Game {
     let mesh;
     if (def.look === 'cloud') {
       mesh = this.effects.makeCloud(def.color ?? 0xf0f0f5, def.opacity, def.squash);
+    } else if (def.look === 'bubble') {
+      mesh = this.effects.makeBubble(def.text, def.color);
+    } else if (def.look === 'puddle') {
+      mesh = this.effects.makePuddle(def.color, def.r);
     } else if (def.look === 'prop') {
       // A thrown prop (e.g. Jacoby's magnifying glass or a snack). Spins in flight.
       mesh = new THREE.Group();
-      mesh.add(createProp(def.prop).object);
+      const prop = createProp(def.prop);
+      mesh.add(prop.object);
+      mesh.userData.prop = prop;
       mesh.scale.setScalar(s);
     } else {
       mesh = new THREE.Mesh(this.projectileGeo, new THREE.MeshBasicMaterial({ color: owner.character.color }));
     }
     this.scene.add(mesh);
     if (def.pickup) owner.handEmpty[def.pickup] = true;
-    this.projectiles.push({
+    const p = {
       owner,
       power: owner.power,
       x: owner.x + (def.x ?? 0.7) * s * owner.facing,
@@ -155,7 +162,10 @@ export class Game {
       resting: false,
       hb: def,
       mesh,
-    });
+    };
+    p.baseY = p.y;
+    this.projectiles.push(p);
+    return p;
   }
 
   // The floor a falling point crosses this frame, if any.
@@ -240,36 +250,80 @@ export class Game {
     return p.life > 0 && p.y > b.bottom && p.x > b.left && p.x < b.right;
   }
 
+  // Vehicles (Byron's Lamborghini once he bails, Eli's FBI van) drive along
+  // whatever floor they're on and fall off edges (gravity 0: they just drive
+  // straight). p.y is their feet; they hit with a circle `ride` m above that.
+  stepVehicle(p) {
+    const def = p.hb;
+    if (def.gravity) {
+      const prevY = p.y;
+      p.vy -= def.gravity / 60;
+      p.y += p.vy / 60;
+      const floor = p.vy <= 0 ? this.floorUnder(p.x, prevY, p.y) : null;
+      if (floor !== null) {
+        p.y = floor;
+        p.vy = 0;
+      }
+      const m = this.stage.main;
+      if (p.x > m.x1 && p.x < m.x2 && p.y < m.top - 0.05 && p.y > m.bottom) return false; // hit the stage's side
+    }
+    const b = this.stage.blast;
+    return p.life > 0 && p.y > b.bottom && p.x > b.left - 8 && p.x < b.right + 8;
+  }
+
   removeProjectile(p) {
+    p.hb.onEnd?.(p, this);
     if (p.hb.burst !== undefined) this.effects.debris(p.x, p.y + 0.15, p.hb.burst, { count: 7, size: 0.06, speed: 2.5, up: 3.5, life: 0.5 });
+    this.disposeProjectile(p);
+  }
+
+  disposeProjectile(p) {
     p.mesh.removeFromParent();
-    p.mesh.traverse((o) => o.material?.dispose());
+    // Thrown props and vehicles are built fresh each time; clouds and bubbles share geometry/textures.
+    const own = p.hb.look === 'prop';
+    p.mesh.traverse((o) => {
+      if (own) o.geometry?.dispose();
+      if (own) o.material?.map?.dispose();
+      o.material?.dispose();
+    });
   }
 
   stepProjectiles() {
     const m = this.stage.main;
-    this.projectiles = this.projectiles.filter((p) => {
+    // Hits can spawn new projectiles mid-loop (Byron knocked out of his Lambo
+    // leaves the car rolling), so they go in a fresh list that's kept too.
+    const current = this.projectiles;
+    this.projectiles = [];
+    const kept = current.filter((p) => {
       const def = p.hb;
       p.age++;
       p.life--;
       if (def.drag) p.vx *= 1 - def.drag;
       if (def.grow) p.r = Math.min(p.maxR, p.r + def.grow / 60);
       p.x += p.vx / 60;
+      def.update?.(p, this); // custom motion (e.g. a bubble wobbling up and down)
       let alive = p.life > 0;
       if (def.pickup) alive = this.stepPickup(p);
+      else if (def.drive) alive = this.stepVehicle(p);
       else if (def.gravity !== undefined) alive = this.stepThrown(p);
       else if (!def.pierce && p.x > m.x1 && p.x < m.x2 && p.y < m.top && p.y > m.bottom) alive = false;
       if (alive && !p.spent) {
+        const hy = p.y + (def.ride ?? 0);
         for (const v of this.fighters) {
           if (v === p.owner || v.dead || v.intangible) continue;
-          if (!circleHitsBox(p.x, p.y, p.r, v)) continue;
+          // Flat zones (a puddle) only catch people standing in them.
+          const touching = def.flat
+            ? Math.abs(v.x - p.x) < p.r + v.hw && v.y >= p.y - 0.1 && v.y < p.y + 0.35
+            : circleHitsBox(p.x, hy, p.r, v);
+          if (!touching) continue;
           if (def.pierce) {
             const last = p.hits.get(v);
             if (last !== undefined && p.age - last < (def.hitEvery ?? 30)) continue;
             p.hits.set(v, p.age);
           }
-          v.takeHit(p, def, Math.sign(p.vx) || Math.sign(v.x - p.x) || 1, this);
+          const result = v.takeHit(p, def, Math.sign(p.vx) || Math.sign(v.x - p.x) || 1, this);
           if (!def.noKnockback) this.effects.spark(v.x, v.y + v.h * 0.6, p.owner.character.color, 0.4);
+          if (result !== 'counter') def.onHit?.(p, v, this, result);
           if (def.pickup) {
             // Bonk: bounce back off them and fall to the floor.
             p.spent = true;
@@ -286,6 +340,7 @@ export class Game {
       if (!alive) this.removeProjectile(p);
       return alive;
     });
+    this.projectiles = kept.concat(this.projectiles);
   }
 
   addShockwave(f) {
@@ -379,14 +434,20 @@ export class Game {
 
   onHit(victim, kb) {
     if (kb > 16) this.shake = Math.min(0.6, kb / 60);
+    if (kb > 20) voice.say(victim.character.id, 'hurt', { chance: 0.5 });
+  }
+
+  // Voicelines named after a move (voicelines/<character>/<move>.mp3) play when it starts.
+  onMoveStart(f, name) {
+    voice.say(f.character.id, name, { chance: 0.6, cooldown: 2.5 });
   }
 
   onKO(f) {
+    voice.say(f.character.id, 'ko', { interrupt: true });
     // A KO'd fighter respawns with their props back in hand.
     this.projectiles = this.projectiles.filter((p) => {
       if (p.owner !== f || !p.hb.pickup) return true;
-      p.mesh.removeFromParent();
-      p.mesh.traverse((o) => o.material?.dispose());
+      this.disposeProjectile(p);
       return false;
     });
     const b = this.stage.blast;
@@ -413,10 +474,17 @@ export class Game {
     for (const v of this.views) v.update(dt, this.time);
     for (const p of this.projectiles) {
       p.mesh.position.set(p.x, p.y, 0);
-      if (p.hb.look === 'prop') {
+      if (p.hb.look === 'prop' && p.hb.drive) {
+        // Vehicles face the way they drive and spin their wheels.
+        p.mesh.rotation.y = p.vx < 0 ? Math.PI : 0;
+        p.mesh.userData.prop.roll?.(Math.abs(p.vx) * dt);
+      } else if (p.hb.look === 'prop') {
         if (p.resting) {
           p.mesh.rotation.z = p.hb.restAngle ?? 0;
           p.mesh.position.y += (p.hb.restLift ?? 0) * p.owner.stats.scale;
+        } else if (p.hb.aim) {
+          // Darts fly point first (props point their business end down -y).
+          p.mesh.rotation.z = Math.atan2(p.vy, p.vx) + Math.PI / 2;
         } else {
           p.mesh.rotation.z -= dt * (p.hb.spin ?? 12) * Math.sign(p.vx || 1);
         }
@@ -424,6 +492,10 @@ export class Game {
         // Fade in over the first few frames, out over the last 30.
         const alpha = Math.min(1, p.age / 6, p.life / 30);
         this.effects.updateCloud(p.mesh, p.r, alpha, this.time);
+      } else if (p.hb.look === 'bubble') {
+        this.effects.updateBubble(p.mesh, p.r, Math.min(1, p.age / 5), Math.min(1, p.life / 10));
+      } else if (p.hb.look === 'puddle') {
+        this.effects.updatePuddle(p.mesh, Math.min(1, p.age / 10, p.life / 30), this.time);
       } else {
         p.mesh.scale.setScalar(p.r);
       }

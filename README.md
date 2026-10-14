@@ -42,7 +42,7 @@ Hold a direction while pressing attack or special to pick the move:
 
 **Grabs and throws** (like Smash):
 - Press **grab**, or attack while holding shield. Grabs go straight through shields, but whiff if they're dodging. Running into a grab slides you in a bit farther (dash grab). Whiffing a grab leaves you open.
-- While you hold someone: **attack** (or grab) headbutts them for a little damage, and **a direction throws**: forward shoves them away, back hoists them over your head and flings them behind you (the strongest, a KO throw near the edge), up heaves them straight up for juggles, down slams them into the floor.
+- While you hold someone: **attack** (or grab) headbutts them for a little damage, and **a direction throws**: forward shoves them away, back hoists them over your head and flings them behind you (the strongest, a KO throw near the edge), up heaves them straight up for juggles, down slams them into the floor. Throws get a lot stronger the more damage the person has: a back throw at the edge KOs around 100%.
 - Grabbed? **Mash buttons** (and tap left/right) to break free sooner. The more damage you have, the longer a grab holds you. Getting hit by anyone breaks a grab.
 
 **Dodging** (you can't be hit while you glow blue):
@@ -58,6 +58,10 @@ Hold a direction while pressing attack or special to pick the move:
 - **Down or away**: let go
 
 Only one fighter can hang on a ledge at a time, and after 5 seconds you let go.
+
+**Winning**: the last one standing gets a victory screen: they do their own victory animation on a podium while everyone else claps.
+
+**Menu options**: **Graphics** (Auto lowers the resolution a little whenever the frame rate dips, then raises it back; Fast is for older laptops: lower resolution, no shadows), **Voices** (voicelines on/off) and **Show FPS** (a frame-rate counter in the corner).
 
 **Seeing hitboxes**: tick **Show hitboxes** in the menu (or press the <kbd>`</kbd> key, left of 1, during a match). Red circles are attacks, orange ones only count while a prop is still in hand, and the yellow boxes are the bodies they have to touch (blue while invincible).
 
@@ -97,7 +101,81 @@ Carries a magnifying glass and digs snacks out of the ground. Middleweight, all-
 
 His own attacks: **Lens Bash** (side, swings the magnifying glass), **Dirt Flick** (down, flings dirt in their face), **Glass Hammer** (forward air) and **Close Inspection** (down throw: holds the glass over them and burns them with focused sunlight before letting go). The magnifying glass swings hit harder and reach farther than his bare fist, so they're weaker while it's on the floor. The rest are the shared moves.
 
-Friends 3 and 4 are still placeholders with the default moveset.
+### Eli
+Chronically online, fluent in brainrot. Built like Velma from MultiVersus: speech bubbles, a charged sprint, a sticky spill, and a meter he fills up until he can call in a van. He holds his phone in his right hand the whole time. Light and quick. The HUD shows 💬 the next phrase he'll shout and 📈 his clout.
+
+| Attack | Move | What it does |
+|---|---|---|
+| Jab | **Phone Smack** | Phone backhand, a slap, then a selfie with the flash on in their face. Keep tapping attack. |
+| Side | **Hit the Woah** | Winds up and snaps into the Woah. |
+| Up | **Dab** | Dabs. The stretched-out arm hits above him. |
+| Down | **Fanum Tax** | Crouching swipe that takes a cut. (Against Jacoby it actually steals his snack.) |
+| Air neutral | **Floss** | Flosses in midair: two hits that hold them in, a third that launches. |
+| Air forward | **Swipe Up** | Swipes up like he's skipping a TikTok. |
+| Air back | **Mule Kick** | Both feet straight back. His strongest aerial. |
+| Air up | **Selfie Stick** | Shoots a selfie stick straight up; the flash goes off at the top. |
+| Air down | **Sigma Stomp** | Arms folded, stomps down. Spikes. |
+| Up throw | **Yeet** | Exactly what it sounds like. |
+
+| Special | Move | What it does |
+|---|---|---|
+| Neutral | **Brainrot** | Shouts a speech bubble. They come in order: **NEEGY** (fast and straight), **GUCCI MORTY** (big, slow, hangs around and hits a few times), **KIRK** (short range, bonks hard), **FUNKY EHH** (wobbles up and down). Bubble hits build clout. |
+| Side | **Hit the Griddy** | Hold the button to hype it up (he griddies in place), let go to griddy across the stage into them. Charged past halfway it's the strong version. Builds clout. |
+| Up | **Prime Time** | Spills a bottle of Prime and rides the energy up. On the ground it leaves a puddle for a few seconds: it slows anyone standing in it, and staying in it too long gets them **STUCK** to the floor. His recovery. |
+| Down | **Doomscroll** / **FBI OPEN UP** | Stares at his phone for as long as you hold the button, building clout (wide open while he does). When clout hits 100% (📈VIRAL), down special on the ground **calls the FBI**: a black van tears across the stage from behind him and runs over everyone in its way. Uses up all his clout. |
+
+### Andrew
+Type 1 diabetic, and his whole kit is built around it. Carries an insulin pen. He has to manage his **blood sugar** while he fights (the HUD shows 🩸 and his mg/dL):
+
+- **LOW** (under 70): slower and hits weaker until he gets sugar in him.
+- **Normal** (70–180).
+- **SUGAR RUSH** (180–300, ⚡): faster and hits harder.
+- **SPIKE** (over 300, ⚠️): hits hardest, but sluggish.
+
+It slowly burns off during the match (about 1.5 a second), so every so often he needs a juice box.
+
+| Attack | Move | What it does |
+|---|---|---|
+| Jab | **Pen Pokes** | Insulin pen poke, a left hook, then he clicks the dose dial and stabs it forward. |
+| Side | **Carb Load** | Swings a big French loaf. |
+| Up | **Spike Chart** | An uppercut that shoots straight up like his sugar after cake. |
+| Down | **Low Blow** | Quick kick at the ankles. |
+| Air neutral | **Sugar High** | Spins with his arms out in a cloud of sparkles. |
+| Air forward | **Bread Slam** | Brings the loaf down overhead. |
+| Air back | **Correction Kick** | High heel kick behind him. |
+| Air up | **Finger Prick** | Quick jab straight up with the pen. |
+| Air down | **Sugar Crash** | Hammers down with both fists. Spikes. |
+| Down throw | **Insulin Shot** | Pins them and gives them a dose: their sugar crashes (slowed for a couple of seconds). |
+
+| Special | Move | What it does |
+|---|---|---|
+| Neutral | **Insulin Dart** / **Correction** | Throws an insulin pen like a dart. Whoever it hits **crashes**: slowed for 2.5 seconds. While he's SPIKING, the same button doses himself instead and brings his sugar back to 120. |
+| Side | **Glucose Check** | Lunges in with his meter and pricks them. The meter reads their damage like a blood sugar; at 150%+ it reads **HI** and they fly a lot farther. |
+| Up | **Sugar Rush** | Downs a glucose tab and rockets up in a jittery zigzag, hitting a few times. Higher in a sugar rush, lower when he's low. His recovery. |
+| Down | **Juice Box** | Drinks a juice box: +80 mg/dL and heals 2%. Fixes a low, or tips him into a sugar rush. Drink too many and he spikes. |
+
+### Byron
+A professional larper: confidently "knows" karate, parkour, Krav Maga and cars, and doesn't. Fights with his **wired earbuds** like Wonder Woman's Lasso of Truth from MultiVersus, and his side special is his **Lamborghini**, which works like Wario's bike in Smash. The HUD shows 🏎️ when the Lambo's ready and 🔧 when it's "in the shop".
+
+| Attack | Move | What it does |
+|---|---|---|
+| Jab | **Karate (he watched a video)** | Chop, chop, **HADOUKEN**. |
+| Side | **Crane Kick** | Strikes the Karate Kid crane pose, then kicks. |
+| Up | **Lasso Twirl** | Whirls the earbuds over his head, front to back. |
+| Down | **Capoeira Sweep** | Drops low and sweeps a leg along the floor. |
+| Air neutral | **Lasso Spin** | Spins with the earbuds out, all the way around. |
+| Air forward | **Earbud Whip** | Cracks the earbuds forward like a whip. Long reach; the tip hits hardest. |
+| Air back | **Muay Thai (trust me)** | Spinning back kick. |
+| Air up | **Whip Up** | Cracks the earbuds straight up. |
+| Air down | **Earbud Plunge** | Whips them straight down. The tip spikes. |
+| Back throw | **YouTube Suplex** | He watched one video. Arches back and slams them behind him. |
+
+| Special | Move | What it does |
+|---|---|---|
+| Neutral | **Lasso of Truth** | Throws his earbuds out like a lasso. On the ground it grabs whoever it touches from far away (even through shields), reels them in, and he's holding them: throw away. In the air it flies up at an angle and yanks people toward him, and if it reaches a ledge while he's off the stage he **zips to it** (a tether recovery). |
+| Side | **Lambo** | Hops in his Lamborghini and it drives itself. **Hold forward** to go faster, **hold back** to brake and spin it around, **jump** to hop it, **up** for a wheelie. Running someone over at speed sends them. **Special or shield** bails out (so does jump in the air), and the empty car keeps rolling and wrecks. One Lambo at a time: after it wrecks it's in the shop for a few seconds, and trying again just gets you "IT'S IN THE SHOP" (wide open). Drive it off the stage and don't bail, and you go down with it. |
+| Up | **Parkour!** | A huge backflip straight up with the earbuds whirling around him. Hits twice. His recovery. |
+| Down | **Krav Maga (trust me bro)** | A counter: drops into a stance, and if anything hits him during it he slips it and answers with a spinning kick. Nothing hits him? He just stands there. |
 
 ## Putting your friends in the game
 
@@ -106,7 +184,7 @@ Characters are defined in [`src/roster.js`](src/roster.js): name, color, stats (
 To use a real 3D model of a friend:
 
 1. **Make the model.** Easiest: [Meshy](https://www.meshy.ai) image-to-3D from one full-body photo (facing the camera, arms out to the sides, legs a bit apart, plain background). Phone scanning apps (Polycam, KIRI Engine, Scaniverse) also work.
-2. **Rig it.** In Meshy, use **Animate** to auto-rig it as a humanoid. Adding a run animation is nice but optional. Download as **GLB**, with textures if you can. (Skipping this is fine too: upload the un-rigged model and ask Claude to rig it. It has a script for that, [`tools/autorig.py`](tools/autorig.py), that works on a model standing straight with its arms out.)
+2. **Rig it.** In Meshy, use **Animate** to auto-rig it as a humanoid. Adding a run animation is nice but optional. Download as **GLB**, with textures if you can. (Skipping this is fine too: upload the un-rigged model and ask Claude to rig it. It has a script for that, [`tools/autorig.py`](tools/autorig.py), that works on a model standing straight with its arms out or hanging a little away from the body. Eli, Andrew and Byron were rigged that way.)
 3. **Shrink it.** GitHub's website won't take files over 25 MB, and Meshy models are usually bigger (mostly because of their texture pictures). With the game running (`npm run dev`), open http://localhost:5173/shrink.html (there's a link on the menu), drop the file in, type the friend's name and click **Shrink**. It downloads a copy that's usually under 10 MB and looks the same in game.
 4. **Drop it in.** Upload the file to `public/models/` and point that friend's roster entry at it, e.g. `model: 'models/draven.glb'`.
 
@@ -114,34 +192,39 @@ The game scales any model to fighter height automatically. If the model has a Mi
 
 Upload the file under the name the character file uses (e.g. `draven.glb`, `jacoby.glb`), or rename it in the character file to match what you uploaded.
 
+**Voicelines:** drop audio clips into [`voicelines/<friend>/`](voicelines/README.md) named after when they should play (`victory.mp3`, `ko.mp3`, `nspecial.mp3`, ...). See [voicelines/README.md](voicelines/README.md) for the full list.
+
 ## Project layout
 
 ```
 shrink.html    model shrinker page (makes .glb files small enough for GitHub)
+voicelines/    voice clips per friend (see voicelines/README.md)
 tools/
   autorig.py   gives an un-rigged model a skeleton (run by Claude with Blender's Python module)
+  slim.py      makes an already rigged model lighter (fewer triangles, smaller textures)
 src/
   main.js      menu, match flow, game loop (fixed 60 fps simulation)
   game.js      a single match: hit detection, stage collision, camera, KOs
   fighter.js   fighter physics + state machine (jumping, attacks, hitstun, shield)
   moves.js     default frame data for every move: tweak damage/knockback here
-  characters/  per-friend movesets, poses and props (draven.js, jacoby.js)
+  characters/  per-friend movesets, poses, props and victory animations
   input.js     keyboard, gamepad and CPU controllers
   roster.js    the characters
   stage.js     stage layout and cartoon scenery (toon shading, ink outlines, painted textures)
   view.js      fighter visuals (placeholder figure or loaded GLB model)
   poses.js     procedural poses for idle, jumping, attacks, getting hit
   puppet.js    drives a rigged model's skeleton from those poses
-  props.js     held props (bong, dab pen, magnifying glass, snacks, chip bag)
+  props.js     held props (bong, dab pen, magnifying glass, snacks, phone, insulin pen, earbuds, the Lambo...)
   shrink.js    the model shrinker (shrink.html)
   effects.js   hit sparks, KO blasts, vapor clouds, pop-up text, dirt and crumbs
   hud.js       damage % / stock display
+  victory.js   the victory screen
+  voice.js     plays the voicelines
 ```
 
 ## Roadmap ideas
 
-- Unique movesets for the rest of the friend group
-- More stages
+- More stages (different people's dorm rooms)
 - Items
 - Sound effects and music
 - Character select portraits taken from the scans

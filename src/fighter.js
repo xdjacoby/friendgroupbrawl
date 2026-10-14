@@ -86,6 +86,7 @@ export class Fighter {
     this.handEmpty = {}; // { right: true } after throwing the prop in that hand
     this.propReturn = null; // { side, timer }: a lost prop pops back into your hand
     this.powerBonus = 0; // e.g. +0.04 per snack Jacoby eats; lost on KO
+    this.speedMul = 1; // run/air speed multiplier (e.g. Andrew's sugar rush)
     this.charState = {}; // scratch space for character-specific mechanics
   }
 
@@ -131,6 +132,7 @@ export class Fighter {
     if (this.slowTimer > 0) this.slowTimer--;
     if (this.ledgeCooldown > 0) this.ledgeCooldown--;
     if (this.propReturn && --this.propReturn.timer <= 0) this.regainProp(this.propReturn.side, world);
+    this.character.update?.(this, world); // per-frame character mechanics (cooldowns, meters)
     this.prevX = this.x;
     this.prevY = this.y;
     this.crouching = false; // handleActions sets it again while down is held
@@ -261,6 +263,15 @@ export class Fighter {
     this.shielding = false;
     this.move = { name, def, frame: 0, hit: new Set() };
     def.onStart?.(this, input, world);
+    world?.onMoveStart?.(this, name);
+  }
+
+  // Something else ended our move early (a hit, a grab): let it clean up
+  // (e.g. Byron's Lamborghini keeps rolling without him).
+  interruptMove(world) {
+    const m = this.move;
+    this.move = null;
+    m?.def.onInterrupt?.(this, m, world);
   }
 
   // Can this move be used right now (rather than falling back to something else)?
@@ -290,17 +301,27 @@ export class Fighter {
   activeHitboxes() {
     const m = this.move;
     if (!m || this.hitlag > 0) return [];
-    return m.def.hitboxes.filter((hb) => m.frame >= hb.start && m.frame <= hb.end && !(hb.prop && this.handEmpty[hb.prop]));
+    return m.def.hitboxes.filter((hb) => m.frame >= hb.start && m.frame <= hb.end
+      && !(hb.prop && this.handEmpty[hb.prop]) && (!hb.when || hb.when(this)));
   }
 
   // Each hitbox `group` (default 0) can hit a given opponent once per move,
   // so multi-hit moves give each hit its own group.
+  // Long moves (a car driving around) can set `rehit`: frames until the same
+  // group can hit that victim again.
   hasHit(victim, hb) {
-    return this.move.hit.has(`${hb.group ?? 0}:${victim.slot}`);
+    const m = this.move;
+    const key = `${hb.group ?? 0}:${victim.slot}`;
+    if (!hb.rehit) return m.hit.has(key);
+    const at = m.hitAt?.get(key);
+    return at !== undefined && m.frame - at < hb.rehit;
   }
 
   markHit(victim, hb) {
-    this.move.hit.add(`${hb.group ?? 0}:${victim.slot}`);
+    const m = this.move;
+    const key = `${hb.group ?? 0}:${victim.slot}`;
+    m.hit.add(key);
+    (m.hitAt ??= new Map()).set(key, m.frame);
   }
 
   heal(amount, world) {
@@ -322,7 +343,7 @@ export class Fighter {
     const stunned = this.hitstun > 0;
     // Scripted moves (lunges, recoveries, ground pound) set their own velocity.
     const scripted = !!this.move?.def.scripted;
-    const slow = this.slowTimer > 0 ? 0.55 : 1;
+    const slow = (this.slowTimer > 0 ? 0.55 : 1) * this.speedMul;
 
     if (this.grounded) {
       this.vy = 0;
@@ -391,6 +412,16 @@ export class Fighter {
       return 'chip';
     }
 
+    // Counter stance (Byron's Krav Maga): the hit whiffs and he answers it.
+    const counter = this.move?.def.counter;
+    if (counter && this.move.frame >= counter.start && this.move.frame <= counter.end) {
+      this.facing = Math.sign(source.x - this.x) || this.facing;
+      this.hitlag = 10;
+      if (attacker instanceof Fighter) attacker.hitlag = 10;
+      this.startMove(counter.then, { x: 0, y: 0 }, world);
+      return 'counter';
+    }
+
     if (this.shielding) {
       this.shieldHP -= hb.dmg * 1.3;
       this.hitlag = attacker.hitlag = Math.floor(3 + hb.dmg * 0.3);
@@ -426,7 +457,7 @@ export class Fighter {
     }
     this.vx = 0;
     this.vy = 0;
-    this.move = null;
+    this.interruptMove(world);
     this.jumpsquat = 0;
     this.landingLag = 0;
     this.helpless = false;
@@ -449,11 +480,18 @@ export class Fighter {
   // the catch. The victim gets `heldBy`. While holding: attack/grab pummels,
   // a direction throws (moves with `throw` and `carry`, see moves.js).
 
-  catchFighter(v) {
+  catchFighter(v, world) {
+    // A long-range grab (Byron's earbud lasso) reels them in first.
+    const grab = this.move?.def.grab;
+    const reel = grab?.reel ?? 0;
     this.move = null;
-    this.holding = { victim: v, timer: Math.floor(GRAB_HOLD + v.percent * GRAB_HOLD_PER), frame: 0 };
+    this.holding = {
+      victim: v, timer: Math.floor(GRAB_HOLD + reel + v.percent * GRAB_HOLD_PER), frame: 0,
+      reel: reel && { left: reel, total: reel, x: (v.x - this.x) * this.facing, y: v.y - this.y },
+    };
     v.heldBy = this;
-    v.move = null;
+    v.interruptMove(world);
+    grab?.onCatch?.(this, v, world);
     v.shielding = false;
     v.crouching = false;
     v.jumpsquat = 0;
@@ -469,19 +507,29 @@ export class Fighter {
 
   // Keep the victim in our hands: in front of us, or along the throw's `carry` path.
   placeHeld() {
-    const v = this.holding.victim;
+    const H = this.holding;
+    const v = H.victim;
     const s = this.stats.scale;
     const carry = this.move?.def.carry;
-    const [ox, oy] = carry ? hitboxPos({ path: carry }, this.move.frame) : [(this.hw + v.hw) / s + 0.12, 0.05];
-    v.x = v.prevX = this.x + ox * s * this.facing;
-    v.y = v.prevY = this.y + oy * s;
+    let [ox, oy] = carry ? hitboxPos({ path: carry }, this.move.frame) : [(this.hw + v.hw) / s + 0.12, 0.05];
+    ox *= s;
+    oy *= s;
+    if (H.reel?.left > 0) {
+      // Being reeled in: slide from where they were caught into our hands.
+      const t = 1 - --H.reel.left / H.reel.total;
+      const e = t * t * (3 - 2 * t);
+      ox = H.reel.x + (ox - H.reel.x) * e;
+      oy = H.reel.y + (oy - H.reel.y) * e;
+    }
+    v.x = v.prevX = this.x + ox * this.facing;
+    v.y = v.prevY = this.y + oy;
     v.facing = -this.facing;
   }
 
   updateHold(input, world) {
     const H = this.holding;
     if (input.attack || input.grab) H.pummel = true; // remembered through the catch
-    if (++H.frame < GRAB_CATCH) return;
+    if (++H.frame < GRAB_CATCH + (H.reel?.total ?? 0)) return;
     const fwd = input.x * this.facing;
     let name = null;
     if (input.y > 0.5) name = 'uthrow';

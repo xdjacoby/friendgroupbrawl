@@ -1,5 +1,59 @@
 import * as THREE from 'three';
 
+// Speech bubble pictures are the same every time a phrase is shouted: draw each once.
+const bubbleTextures = new Map();
+
+function bubbleTexture(text, color) {
+  const key = `${text}|${color}`;
+  if (bubbleTextures.has(key)) return bubbleTextures.get(key);
+  const font = '900 84px Impact, "Arial Black", system-ui, sans-serif';
+  const canvas = document.createElement('canvas');
+  let ctx = canvas.getContext('2d');
+  ctx.font = font;
+  const tw = ctx.measureText(text).width;
+  canvas.width = Math.ceil(tw + 120);
+  canvas.height = 200;
+  ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const cx = w / 2;
+  const cy = 86;
+  const rx = w / 2 - 14;
+  const ry = 72;
+  // Tail first, so the bubble's outline covers its base.
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = '#1d1630';
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(cx - rx * 0.45, cy + ry * 0.6);
+  ctx.lineTo(cx - rx * 0.62, 192);
+  ctx.lineTo(cx - rx * 0.15, cy + ry * 0.75);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath(); // cover the tail's seam
+  ctx.ellipse(cx, cy, rx - 5, ry - 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.font = font;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 12;
+  ctx.strokeStyle = '#1d1630';
+  ctx.strokeText(text, cx, cy + 4);
+  ctx.fillStyle = color;
+  ctx.fillText(text, cx, cy + 4);
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.userData.cached = true; // shared by every bubble with this phrase
+  const tex = { map, aspect: canvas.width / canvas.height };
+  bubbleTextures.set(key, tex);
+  return tex;
+}
+
 // Short-lived visual effects: hit sparks, KO blasts, shockwave rings, pop-up text, debris.
 export class Effects {
   constructor(scene) {
@@ -94,6 +148,103 @@ export class Effects {
     }
   }
 
+  // A comic speech bubble with a phrase in it (Eli's brainrot). Animated by updateBubble().
+  makeBubble(text, color = '#ff2d6f') {
+    const { map, aspect } = bubbleTexture(text, color);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false }));
+    sprite.renderOrder = 8;
+    sprite.userData.aspect = aspect;
+    sprite.userData.phase = Math.random() * Math.PI * 2;
+    return sprite;
+  }
+
+  // r: hit radius; pop: 0-1 grows in; fade: 1-0 as it expires.
+  updateBubble(sprite, r, pop, fade) {
+    const h = r * 2.3 * (0.5 + 0.5 * pop) * (pop < 1 ? 1 + Math.sin(pop * Math.PI) * 0.25 : 1);
+    sprite.scale.set(h * sprite.userData.aspect, h, 1);
+    sprite.material.opacity = fade;
+    sprite.material.rotation = Math.sin(performance.now() / 180 + sprite.userData.phase) * 0.06;
+  }
+
+  // A speech bubble that pops up, floats a little and fades (not a projectile).
+  popBubble(x, y, text, color, size = 0.5, life = 1.6) {
+    const sprite = this.makeBubble(text, color);
+    sprite.position.set(x, y, 1);
+    this.add(sprite, life, (m, t) => {
+      this.updateBubble(m, size, Math.min(1, t * 8), t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1);
+      m.position.y = y + t * 0.5;
+    });
+  }
+
+  // A flat, glowing spill on the floor (Eli's Prime). Animated by updatePuddle().
+  makePuddle(color = 0x3df5ff, r = 1) {
+    const group = new THREE.Group();
+    const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.75, depthWrite: false });
+    const rim = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false });
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 28), material);
+    disc.rotation.x = -Math.PI / 2;
+    const shine = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.7, 28, 1, 0.3, 1.6), rim);
+    shine.rotation.x = -Math.PI / 2;
+    shine.position.y = 0.005;
+    group.add(disc, shine);
+    group.scale.set(r, 1, r * 0.55);
+    group.userData = { material, rim, r };
+    return group;
+  }
+
+  updatePuddle(group, alpha, time) {
+    const { material, rim, r } = group.userData;
+    material.opacity = 0.75 * alpha;
+    rim.opacity = 0.5 * alpha;
+    const wobble = 1 + Math.sin(time * 3) * 0.03;
+    group.scale.set(r * wobble, 1, r * 0.55 / wobble);
+    group.position.y += 0.02;
+  }
+
+  // Camera flash: a quick bright white pop.
+  flash(x, y, size = 1) {
+    const mesh = new THREE.Mesh(this.sphere, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }));
+    mesh.position.set(x, y, 0.8);
+    this.add(mesh, 0.22, (m, t) => {
+      m.scale.setScalar(size * (0.3 + t * 1.2));
+      m.material.opacity = 0.95 * (1 - t) ** 2;
+    });
+  }
+
+  // Sparkles that drift up and twinkle out (Andrew's sugar, victory glitter).
+  sparkle(x, y, color = 0xffffff, count = 5, spread = 0.6) {
+    for (let i = 0; i < count; i++) {
+      const mesh = new THREE.Mesh(this.sphere, new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false }));
+      mesh.position.set(x + (Math.random() - 0.5) * spread, y + (Math.random() - 0.5) * spread, 0.7);
+      const vy = 0.6 + Math.random() * 1.2;
+      const s = 0.03 + Math.random() * 0.04;
+      this.add(mesh, 0.5 + Math.random() * 0.4, (m, t) => {
+        m.position.y += vy / 60;
+        m.scale.setScalar(s * (1 + Math.sin(t * Math.PI) * 1.5));
+        m.material.opacity = 1 - t;
+      });
+    }
+  }
+
+  // Confetti for the victory screen.
+  confetti(x, y, colors, count = 40, spread = 6) {
+    for (let i = 0; i < count; i++) {
+      const color = colors[i % colors.length];
+      const mesh = new THREE.Mesh(this.confettiGeo ??= new THREE.PlaneGeometry(0.09, 0.16), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true }));
+      mesh.position.set(x + (Math.random() - 0.5) * spread, y + Math.random() * 2, (Math.random() - 0.5) * 3);
+      const vx = (Math.random() - 0.5) * 0.8;
+      const vy = -(1 + Math.random() * 1.2);
+      const spin = (Math.random() - 0.5) * 12;
+      this.add(mesh, 4 + Math.random() * 2, (m, t) => {
+        m.position.x += vx / 60 + Math.sin(t * 20 + spin) * 0.004;
+        m.position.y += vy / 60;
+        m.rotation.x += spin / 60;
+        m.rotation.y += spin / 90;
+        m.material.opacity = t > 0.85 ? 1 - (t - 0.85) / 0.15 : 1;
+      });
+    }
+  }
+
   shieldBreak(f) {
     this.koBlast(f.x, f.y + 1, 0x99ccff);
   }
@@ -162,7 +313,7 @@ export class Effects {
       it.life -= dt;
       if (it.life <= 0) {
         it.mesh.removeFromParent();
-        it.mesh.material.map?.dispose();
+        if (!it.mesh.material.map?.userData.cached) it.mesh.material.map?.dispose();
         it.mesh.material.dispose();
         return false;
       }

@@ -4,24 +4,34 @@ For Claude sessions (it needs Blender's Python module, ~400 MB, so it is not a
 project dependency):
 
     python3 -m venv /tmp/bpy && /tmp/bpy/bin/pip install bpy
-    /tmp/bpy/bin/python tools/autorig.py in.glb public/models/<name>.glb
+    /tmp/bpy/bin/python tools/autorig.py in.glb public/models/<name>.glb [--faces 40000] [--texture 2048]
 
 Works on a model standing up straight, facing forward (glTF +Z), in a T-pose
 or A-pose with the arms away from the body and the legs apart: what Meshy's
 image-to-3D gives you from a photo taken that way. Joints are placed from the
 mesh's own shape (arm direction, leg spacing, foot direction) on top of
 standard Mixamo proportions, then Blender's automatic (heat) weights skin it.
-Textures are re-saved as JPEG so the file stays small. Check the result with
-the pose screenshots described in CLAUDE.md.
+Scans come in at ~100k triangles with 4K textures, far more than a fighter
+the size of a thumbnail needs, so by default the mesh is decimated to 40k
+triangles and textures are capped at 2048 (normal/roughness maps at half
+that) and saved as JPEG: a ~5 MB file that draws much faster. Check the
+result with the pose screenshots described in CLAUDE.md.
 """
 
+import argparse
 import sys
 
 import bpy
 import bmesh  # only importable once bpy is loaded
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
-src, dst = sys.argv[-2], sys.argv[-1]
+parser = argparse.ArgumentParser()
+parser.add_argument('src')
+parser.add_argument('dst')
+parser.add_argument('--faces', type=int, default=40000, help='decimate to about this many triangles (0 = keep all)')
+parser.add_argument('--texture', type=int, default=2048, help='largest color texture size (other maps get half)')
+args = parser.parse_args(sys.argv[1:])
+src, dst = args.src, args.dst
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=src)
@@ -54,6 +64,37 @@ for o in meshes:
     bm.to_mesh(o.data)
     bm.free()
     o.data.validate()
+    # Fewer triangles: the whole fighter is a few hundred pixels tall on screen.
+    tris = sum(len(p.vertices) - 2 for p in o.data.polygons)
+    if args.faces and tris > args.faces:
+        dec = o.modifiers.new('decimate', 'DECIMATE')
+        dec.ratio = args.faces / tris
+        bpy.context.view_layer.objects.active = o
+        bpy.ops.object.modifier_apply(modifier=dec.name)
+        print(f'autorig: {o.name} decimated {tris} -> {sum(len(p.vertices) - 2 for p in o.data.polygons)} triangles')
+
+# Smaller textures. The color map keeps the most detail (faces); the normal and
+# roughness maps barely show at gameplay distance.
+for mat in bpy.data.materials:
+    if not mat.node_tree:
+        continue
+    for node in mat.node_tree.nodes:
+        if node.type != 'TEX_IMAGE' or not node.image:
+            continue
+        color = any(l.to_socket.name == 'Base Color' for out in node.outputs for l in out.links)
+        limit = args.texture if color else args.texture // 2
+        w, h = node.image.size
+        if max(w, h) > limit:
+            k = limit / max(w, h)
+            node.image.scale(max(1, round(w * k)), max(1, round(h * k)))
+
+# Blender's heat weighting runs out of float precision on a person-sized mesh
+# and silently gives up (every vertex unweighted), so the rig is built and
+# weighted on a 10x copy and shrunk back before export.
+UP = 10.0
+for o in meshes:
+    o.data.transform(Matrix.Scale(UP, 4) @ o.matrix_world)
+    o.matrix_world = Matrix()
 
 verts = [o.matrix_world @ v.co for o in meshes for v in o.data.vertices]
 min_z = min(v.z for v in verts)
@@ -94,7 +135,29 @@ joints = {}
 for side, name in ((1, 'Left'), (-1, 'Right')):  # the character's left is +x when facing -y
     # Arm: shoulder joint by proportion, then follow the actual arm out to the fingertips.
     shoulder = Vector((cx + side * 0.109 * H, spine2.y, at(0.806)))
-    arm = [v for v in verts if (v.x - cx) * side > 0.17 * H and v.z > at(0.5)]
+    arm = set(v.to_tuple() for v in verts if (v.x - cx) * side > 0.17 * H and v.z > at(0.5))
+    # Arms hanging down (a relaxed A-pose) sit close to the body and reach below
+    # the hips, so also follow the arm down, slice by slice, taking everything
+    # past the air gap between it and the body. The longest unbroken run of
+    # such slices is the arm (short ones are clothing folds).
+    runs, run, miss = [], [], 0
+    for i in range(42):
+        z0 = at(0.72 - i * 0.01)
+        sl = sorted(((v.x - cx) * side, v) for v in verts if z0 <= v.z < z0 + 0.01 * H and (v.x - cx) * side > 0.03 * H)
+        gaps = [(sl[k + 1][0] - sl[k][0], k) for k in range(len(sl) - 1) if sl[k][0] > 0.07 * H]
+        part = sl[max(gaps)[1] + 1:] if gaps and max(gaps)[0] > 0.025 * H else []
+        x = sum(p[0] for p in part) / len(part) if len(part) >= 12 else None
+        if x is not None and (not run or abs(x - run[-1][0]) < 0.05 * H):
+            run.append((x, part))
+            miss = 0
+        elif run and (miss := miss + 1) > 2:
+            runs.append(run)
+            run, miss = [], 0
+    runs.append(run)
+    best = max(runs, key=len)
+    if len(best) >= 5:
+        arm.update(v.to_tuple() for _, part in best for _, v in part)
+    arm = [Vector(t) for t in arm]
     tip = max(arm, key=lambda v: (v - shoulder).length) if arm else shoulder + Vector((side * 0.37 * H, 0, -0.03 * H))
     reach = tip - shoulder
 
@@ -192,7 +255,26 @@ for o in meshes:
             groups[name] = g
             g.add([v.index], 1.0, 'REPLACE')
             fixed += 1
-print(f'autorig: height {H:.2f}, {len(verts)} vertices, {fixed} unweighted vertices fixed by hand')
+print(f'autorig: height {H / UP:.2f}, {len(verts)} vertices, {fixed} unweighted vertices fixed by hand')
+
+# Back to real size: the meshes keep their weights and the armature modifier.
+bpy.ops.object.select_all(action='DESELECT')
+for o in meshes:
+    o.select_set(True)
+bpy.context.view_layer.objects.active = meshes[0]
+bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+for o in meshes:
+    o.data.transform(Matrix.Scale(1 / UP, 4) @ o.matrix_world)
+    o.matrix_world = Matrix()
+bpy.ops.object.select_all(action='DESELECT')
+bpy.context.view_layer.objects.active = rig
+bpy.ops.object.mode_set(mode='EDIT')
+for b in arm_data.edit_bones:
+    b.head /= UP
+    b.tail /= UP
+bpy.ops.object.mode_set(mode='OBJECT')
+for o in meshes:
+    o.parent = rig
 
 bpy.ops.export_scene.gltf(
     filepath=dst, export_format='GLB', export_animations=False, export_skins=True,

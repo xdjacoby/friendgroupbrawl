@@ -22,6 +22,17 @@
         <label title="Also toggled in a match with the ` key (left of 1)"><input type="checkbox" id="show-hitboxes" /> Show hitboxes</label>
         <button id="start" class="primary">Fight!</button>
       </div>
+      <div class="menu-row options">
+        <label title="Auto lowers the resolution a little when the frame rate drops">Graphics
+          <select id="quality">
+            <option value="auto">Auto (recommended)</option>
+            <option value="high">High</option>
+            <option value="fast">Fast (older laptops)</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="voices" checked /> Voices</label>
+        <label><input type="checkbox" id="show-fps" /> Show FPS</label>
+      </div>
       <p id="menu-hint" class="hint"></p>
       <p class="hint">Model file too big for GitHub? <a href="shrink.html">Shrink it here</a>.</p>
       <details class="controls">
@@ -37,14 +48,21 @@
       <button id="quit">Quit to menu</button>
     </section>
 
-    <section id="results" class="screen overlay hidden">
-      <h2 id="winner"></h2>
-      <table id="standings"></table>
-      <div class="menu-row">
-        <button id="rematch" class="primary">Rematch</button>
-        <button id="to-menu">Menu</button>
+    <section id="results" class="screen hidden">
+      <div class="victory-banner">
+        <h2 id="winner"></h2>
+        <p id="quote"></p>
+      </div>
+      <div class="results-panel">
+        <table id="standings"></table>
+        <div class="menu-row">
+          <button id="rematch" class="primary">Rematch</button>
+          <button id="to-menu">Menu</button>
+        </div>
       </div>
     </section>
+
+    <div id="fps" class="fps hidden"></div>
 
     <script type="module" src="/src/main.js"></script>
   </body>

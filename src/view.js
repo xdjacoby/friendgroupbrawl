@@ -49,6 +49,7 @@ export class FighterView {
   constructor(fighter, scene, slotColor) {
     this.f = fighter;
     this.root = new THREE.Group();
+    this.z = 0; // depth (the victory screen lines people up front to back)
     this.tumble = new THREE.Group(); // pivots at the waist so launched fighters spin in place
     this.tumble.position.y = 0.9;
     this.body = new THREE.Group(); // everything that turns to face left/right
@@ -153,6 +154,7 @@ export class FighterView {
     sprite.position.y = 2.45;
     sprite.renderOrder = 10;
     this.root.add(sprite);
+    this.marker = sprite;
   }
 
   // character.props = { right: 'bong', left: 'dabPen' }. Moves can also put
@@ -167,6 +169,9 @@ export class FighterView {
       this.hands[side] = { holder, props: {} };
     }
     for (const side of ['right', 'left']) if (props[side]) this.handProp(side, props[side]);
+    // Something to ride (pose.mount, e.g. Byron's Lamborghini), parked at the feet.
+    this.mount = { holder: new THREE.Group(), props: {} };
+    this.body.add(this.mount.holder);
   }
 
   handProp(side, name) {
@@ -227,6 +232,9 @@ export class FighterView {
         // Scans export as fully metallic, which renders dark and muddy with no
         // reflections around. People aren't metal.
         for (const mat of mats) {
+          // Scans are flagged double-sided, which draws every hidden inside
+          // face too; they're closed shells, so the outside is enough.
+          mat.side = THREE.FrontSide;
           if (mat.metalness === undefined) continue;
           mat.metalness = 0;
           mat.metalnessMap = null;
@@ -285,7 +293,7 @@ export class FighterView {
     this.root.visible = !f.dead;
     if (f.dead) return;
 
-    this.root.position.set(f.x, f.y, 0);
+    this.root.position.set(f.x, f.y, this.z);
     const targetYaw = f.facing > 0 ? 0 : Math.PI;
     this.body.rotation.y = lerp(this.body.rotation.y, targetYaw, Math.min(1, dt * 20));
 
@@ -328,6 +336,21 @@ export class FighterView {
     else if (this.puppet) this.animatePuppet(pose, dt, k);
     else this.animateModel(dt);
     this.updateProps(pose);
+    this.updateMount(pose, dt);
+  }
+
+  updateMount(pose, dt) {
+    const { holder, props } = this.mount;
+    const name = pose.mount ?? null;
+    if (name && !(name in props)) {
+      props[name] = createProp(name);
+      if (props[name]) holder.add(props[name].object);
+    }
+    for (const [n, p] of Object.entries(props)) if (p) p.object.visible = n === name;
+    if (!name || !props[name]) return;
+    holder.position.x = pose.mountX ?? 0;
+    holder.rotation.z = lerp(holder.rotation.z, pose.mountPitch ?? 0, Math.min(1, dt * 12)); // wheelies
+    props[name].roll?.(Math.abs(this.f.vx) * dt);
   }
 
   animatePuppet(pose, dt, k) {

@@ -3,15 +3,81 @@ import { Game } from './game.js';
 import { STEP } from './fighter.js';
 import { ROSTER, SLOT_COLORS } from './roster.js';
 import { createController, consumeKey, endInputFrame, CONTROL_HELP } from './input.js';
+import { VictoryScene } from './victory.js';
+import { voice } from './voice.js';
 
 const canvas = document.getElementById('view');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+
+// ---- Graphics quality ----
+// Auto starts at up to 1.5x resolution on sharp screens and steps it down
+// (to 0.6x at worst) whenever the frame rate dips below ~50, back up when
+// there's room. High always renders at full sharpness; Fast renders at a
+// lower resolution with no shadows.
+const store = {
+  get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } },
+};
+const QUALITY = {
+  auto: { max: 1.5, min: 0.6, shadows: true },
+  high: { max: 2, min: 2, shadows: true },
+  fast: { max: 0.8, min: 0.8, shadows: false },
+};
+let quality = QUALITY[store.get('brawl.quality', 'auto')] ? store.get('brawl.quality', 'auto') : 'auto';
+let pixelRatio = 1;
+
+function applyQuality() {
+  const q = QUALITY[quality];
+  pixelRatio = Math.min(window.devicePixelRatio, q.max);
+  if (quality === 'fast') pixelRatio = q.max;
+  renderer.setPixelRatio(pixelRatio);
+  renderer.shadowMap.enabled = q.shadows;
+  resize();
+}
+
+// Frame-time watcher for Auto: averages a second of frames, then nudges the resolution.
+const perf = { frames: 0, time: 0, calm: 0, fps: 0 };
+function trackFrame(dt) {
+  perf.frames++;
+  perf.time += dt;
+  if (perf.time < 1) return;
+  perf.fps = perf.frames / perf.time;
+  perf.frames = perf.time = 0;
+  $('fps').textContent = `${Math.round(perf.fps)} fps · ${pixelRatio.toFixed(2)}x`;
+  const q = QUALITY[quality];
+  if (quality !== 'auto' || paused || !game || game.ended) return;
+  const top = Math.min(window.devicePixelRatio, q.max);
+  if (perf.fps < 50 && pixelRatio > q.min) {
+    pixelRatio = Math.max(q.min, pixelRatio - 0.15);
+    perf.calm = 0;
+  } else if (perf.fps > 58 && pixelRatio < top && ++perf.calm >= 4) {
+    pixelRatio = Math.min(top, pixelRatio + 0.1);
+    perf.calm = 0;
+  } else {
+    return;
+  }
+  renderer.setPixelRatio(pixelRatio);
+  resize();
+}
 
 const $ = (id) => document.getElementById(id);
 const screens = { menu: $('menu'), pause: $('pause'), results: $('results') };
+$('quality').value = quality;
+$('quality').onchange = () => {
+  quality = $('quality').value;
+  store.set('brawl.quality', quality);
+  applyQuality();
+};
+$('voices').checked = voice.enabled;
+$('voices').onchange = () => { voice.enabled = $('voices').checked; };
+$('show-fps').checked = store.get('brawl.fps', 'off') === 'on';
+const updateFps = () => {
+  $('fps').classList.toggle('hidden', !$('show-fps').checked);
+  store.set('brawl.fps', $('show-fps').checked ? 'on' : 'off');
+};
+$('show-fps').onchange = updateFps;
 const show = (name) => {
   for (const [k, el] of Object.entries(screens)) el.classList.toggle('hidden', k !== name);
 };
@@ -60,7 +126,11 @@ function renderSlots() {
     const select = card.querySelector('select');
     select.value = slot.control;
     select.onchange = () => { slot.control = select.value; renderSlots(); };
-    const cycle = (d) => { slot.char = (slot.char + d + ROSTER.length) % ROSTER.length; renderSlots(); };
+    const cycle = (d) => {
+      slot.char = (slot.char + d + ROSTER.length) % ROSTER.length;
+      renderSlots();
+      voice.say(ROSTER[slot.char].id, 'select', { interrupt: true });
+    };
     card.querySelector('.prev').onclick = () => cycle(-1);
     card.querySelector('.next').onclick = () => cycle(1);
     wrap.appendChild(card);
@@ -91,12 +161,17 @@ window.addEventListener('gamepaddisconnected', updateHint);
 // ---- Match flow ----
 
 let game = null;
+let victory = null;
 let paused = false;
 let lastSetup = null;
 
 function startMatch(setup = buildSetup()) {
   lastSetup = setup;
   game?.dispose();
+  victory?.dispose();
+  victory = null;
+  voice.stopAll();
+  renderer.shadowMap.enabled = QUALITY[quality].shadows;
   game = new Game({
     renderer,
     stocks: setup.stocks,
@@ -107,6 +182,8 @@ function startMatch(setup = buildSetup()) {
   resize();
   paused = false;
   show(null);
+  const someone = game.fighters[Math.floor(Math.random() * game.fighters.length)];
+  voice.say(someone.character.id, 'intro');
 }
 
 function buildSetup() {
@@ -125,12 +202,21 @@ function showResults(ranked) {
   $('standings').innerHTML = '<tr><th></th><th>Player</th><th>KOs</th><th>Falls</th></tr>' +
     ranked.map((f, i) => `<tr><td>${i + 1}</td><td style="color:${SLOT_COLORS[f.slot]}">P${f.slot + 1} · ${f.character.name}</td><td>${f.koCount}</td><td>${f.falls}</td></tr>`).join('');
   game.ended = true;
+  game.hud.el.remove();
+  // The match stays around (for Rematch) but the victory scene takes over the screen.
+  victory = new VictoryScene({ renderer, ranked });
+  $('quote').textContent = victory.quote ? `"${victory.quote}"` : '';
+  resize();
   show('results');
+  voice.say(winner.character.id, 'victory', { interrupt: true });
 }
 
 function toMenu() {
   game?.dispose();
+  victory?.dispose();
   game = null;
+  victory = null;
+  voice.stopAll();
   renderSlots();
   show('menu');
 }
@@ -154,6 +240,7 @@ function resize() {
   const h = window.innerHeight;
   renderer.setSize(w, h, false);
   game?.resize(w, h);
+  victory?.resize(w, h);
 }
 window.addEventListener('resize', resize);
 
@@ -162,8 +249,12 @@ let acc = 0;
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  trackFrame(dt);
 
-  if (game) {
+  if (victory) {
+    victory.render(dt);
+    endInputFrame();
+  } else if (game) {
     const padPause = [...(navigator.getGamepads?.() ?? [])].some((p) => p?.buttons[9]?.pressed);
     if (consumeKey('Escape') || (padPause && !frame.padPauseHeld)) setPaused(!paused);
     frame.padPauseHeld = padPause;
@@ -171,7 +262,7 @@ function frame(now) {
 
     if (!paused && !game.ended) {
       acc += dt;
-      while (acc >= STEP) {
+      while (acc >= STEP && !game.ended) {
         game.step();
         endInputFrame();
         acc -= STEP;
@@ -189,8 +280,9 @@ function frame(now) {
 
 renderSlots();
 show('menu');
-resize();
+applyQuality();
+updateFps();
 requestAnimationFrame(frame);
 
 // Handy for tweaking from the browser console.
-window.brawl = { get game() { return game; }, ROSTER };
+window.brawl = { get game() { return game; }, get victory() { return victory; }, ROSTER, showResults };

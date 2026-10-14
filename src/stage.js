@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
 // Stage layout in meters. Gameplay happens on the x/y plane at z = 0.
@@ -49,7 +49,10 @@ function ramp() {
 const toon = (color, extra = {}) => new THREE.MeshToonMaterial({ color, gradientMap: ramp(), ...extra });
 
 // Ink outline: a slightly inflated, inside-out copy of the mesh in a dark color.
-// `width` is in world units (divided by the mesh's own scale).
+// `width` is in world units (divided by the mesh's own scale). The inflation is
+// baked into the outline's vertices, so every outline shares one material and
+// mergeStatic() can draw all of them in one go.
+const INK_MAT = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
 function ink(mesh, width = 0.05) {
   const src = mesh.geometry;
   let geo = new THREE.BufferGeometry();
@@ -58,17 +61,41 @@ function ink(mesh, width = 0.05) {
   geo = mergeVertices(geo, 1e-3); // shared corners -> smooth normals -> no gaps at the edges
   geo.computeVertexNormals();
   const scale = (Math.abs(mesh.scale.x) + Math.abs(mesh.scale.y) + Math.abs(mesh.scale.z)) / 3;
-  const mat = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.inkWidth = { value: width / scale };
-    shader.vertexShader = 'uniform float inkWidth;\n' + shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\n  transformed += normal * inkWidth;',
-    );
-  };
-  mat.customProgramCacheKey = () => 'ink';
-  mesh.add(new THREE.Mesh(geo, mat));
+  const w = width / scale;
+  const pos = geo.attributes.position;
+  const nor = geo.attributes.normal;
+  for (let i = 0; i < pos.count; i++) {
+    pos.setXYZ(i, pos.getX(i) + nor.getX(i) * w, pos.getY(i) + nor.getY(i) * w, pos.getZ(i) + nor.getZ(i) * w);
+  }
+  mesh.add(new THREE.Mesh(geo, INK_MAT));
   return mesh;
+}
+
+// Scenery that never moves (relative to `root`) is hundreds of small meshes;
+// drawing each one separately is what slows the frame down. Bake them into one
+// mesh per material (all the outlines become a single mesh, and so on).
+function mergeStatic(root, { receive = false } = {}) {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const meshes = [];
+  root.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const buckets = new Map();
+  for (const o of meshes) {
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    const keep = o.material.map ? ['position', 'normal', 'uv'] : ['position', 'normal'];
+    for (const name of Object.keys(g.attributes)) if (!keep.includes(name)) g.deleteAttribute(name);
+    if (!g.attributes.normal) g.computeVertexNormals();
+    if (!buckets.has(o.material)) buckets.set(o.material, []);
+    buckets.get(o.material).push(g);
+  }
+  root.clear();
+  for (const [material, geos] of buckets) {
+    const mesh = new THREE.Mesh(mergeGeometries(geos), material);
+    mesh.receiveShadow = receive && material !== INK_MAT;
+    root.add(mesh);
+    for (const g of geos) g.dispose();
+  }
 }
 
 // mesh(geometry, material, x, y, z, parent) with shadows on.
@@ -282,7 +309,7 @@ export function buildStageScene(stage, scene) {
   const sun = new THREE.DirectionalLight(0xfff3dc, 2.3);
   sun.position.set(6, 14, 10);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(1024, 1024); // only the fighters and platforms cast shadows
   sun.shadow.bias = -0.0005;
   Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 14, bottom: -8, near: 1, far: 50 });
   scene.add(sun);
@@ -360,6 +387,8 @@ export function buildStageScene(stage, scene) {
   mushroom(island, -4.5, 0, -1.7, 1.2);
   mushroom(island, -4.1, 0, -1.45, 0.7);
   mushroom(island, 5.2, 0, -1.6, 0.9);
+
+  mergeStatic(island, { receive: true });
 
   // ---- Pass-through platforms: little wooden plank decks ----
   const plankMat = toon(0xffffff, { map: plankTexture() });
@@ -457,6 +486,14 @@ export function buildStageScene(stage, scene) {
     islet(bg, 11, -8, -10, 0.6, grassMat, plainDirt, leafMat, trunkMat),
   ];
   islets.forEach((g, i) => { g.userData.baseY = g.position.y; g.userData.phase = i * 2.1; });
+
+  // Bake everything that doesn't move; clouds, islets and the sun's rays
+  // move, so each of those is baked on its own.
+  const scenery = new THREE.Group();
+  for (const c of [...bg.children]) if (c !== sunGroup && !clouds.includes(c) && !islets.includes(c)) scenery.add(c);
+  bg.add(scenery);
+  mergeStatic(scenery);
+  for (const g of [...clouds, ...islets, rays]) mergeStatic(g);
 
   let time = 0;
   return {

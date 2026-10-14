@@ -14,6 +14,9 @@ import { keyframes, HOLD } from './poses.js';
 //   group       hitboxes in the same group (default 0) hit someone once per move;
 //               give multi-hit moves a group per hit. List sweet spots first.
 //   prop        'right'/'left': only counts while that hand still holds its prop
+//   when(f)     only counts while this returns true (e.g. the car going fast)
+//   rehit       frames before the same group can hit the same victim again
+//               (long moves like driving; default: once per move)
 //
 // Every attack has a `pose` built with keyframes() (src/poses.js) whose swing
 // lands on the hitbox frames. `limb` ('arm', 'leg', 'spin') is the fallback
@@ -23,6 +26,9 @@ import { keyframes, HOLD } from './poses.js';
 // `available(f)` + `fallback`: if the move can't be used right now, do `fallback` instead.
 // `ledgeGrab: true` lets the fighter grab ledges during the move.
 // `onHit(f, victim, world)` runs when one of the move's hitboxes connects.
+// `onInterrupt(f, move, world)` runs if a hit or grab cuts the move short.
+// `counter: { start, end, then }`: getting hit in that window whiffs the hit
+// and starts move `then` instead (Byron's Krav Maga).
 // Grabs and throws (GRABS below): `grab` is a grab box, `pummel`/`throw` act on
 // whoever you're holding, `carry` is the path they follow during a throw.
 //
@@ -32,6 +38,11 @@ import { keyframes, HOLD } from './poses.js';
 //   pierce      keeps going after a hit       hitEvery   frames between hits on the same target
 //   noKnockback chip damage only              slow       frames of slowdown applied on hit
 //   unique      only one alive per owner with this tag
+//   flat        hits only fighters standing in it (a puddle), not a circle
+//   onHit(p, victim, world, result) / onEnd(p, world) / update(p, world)  hooks
+//   drive, ride vehicles: drive along the floor (gravity optional), hit with
+//               a circle `ride` m above their wheels
+//   look 'bubble' (+ text, color) speech bubble; 'puddle' (+ color) floor spill
 //   color/opacity/squash   cloud look (squash < 1 flattens it vertically)
 //   vy, gravity initial upward speed and fall acceleration (thrown objects)
 //   pickup      'right'/'left': the prop leaves that hand, lands, and has to be picked
@@ -344,6 +355,9 @@ export function stopAtEdge(f) {
 // direction throws. A throw launches on `throw.frame` (fields like a hitbox;
 // the angle is relative to where you face) and the victim follows `carry`
 // ([[frame, x, y], ...] from your feet) until then. Characters can replace these.
+// Throws have high `growth` on purpose: the more damage someone has, the
+// farther they fly (back throw KOs ~100% at the ledge, ~130% from center).
+// `grab.reel` (frames) reels in someone caught far away (Byron's lasso).
 
 const REACH = {
   rArm: [1, -0.2, 0.25], rFore: [1, -0.05, -0.1], lArm: [1, -0.2, -0.25], lFore: [1, -0.05, 0.1],
@@ -392,7 +406,7 @@ export const GRABS = {
   // Forward throw: pulls them in, then shoves them away.
   fthrow: {
     total: 30, hitboxes: [],
-    throw: { frame: 12, dmg: 8, base: 7.5, growth: 0.6, angle: 40 },
+    throw: { frame: 12, dmg: 8, base: 8, growth: 0.85, angle: 40 },
     carry: [[0, 0.88, 0.05], [7, 0.72, 0.25], [12, 1.2, 0.55]],
     pose: keyframes([
       [0, HOLD],
@@ -405,7 +419,7 @@ export const GRABS = {
   // Back throw: hoists them over his head and flings them behind. The KO throw.
   bthrow: {
     total: 34, hitboxes: [],
-    throw: { frame: 16, dmg: 10, base: 7, growth: 0.85, angle: 140 },
+    throw: { frame: 16, dmg: 10, base: 7.5, growth: 1.1, angle: 140 },
     carry: [[0, 0.88, 0.05], [5, 0.75, 0.5], [10, 0.2, 1.75], [16, -1.05, 0.7]],
     pose: keyframes([
       [0, HOLD],
@@ -419,7 +433,7 @@ export const GRABS = {
   // Up throw: heaves them straight up. Sets up juggles.
   uthrow: {
     total: 30, hitboxes: [],
-    throw: { frame: 12, dmg: 7, base: 9, growth: 0.55, angle: 88 },
+    throw: { frame: 12, dmg: 7, base: 9.5, growth: 0.8, angle: 88 },
     carry: [[0, 0.88, 0.05], [6, 0.7, 0.45], [12, 0.15, 1.95]],
     pose: keyframes([
       [0, HOLD],
@@ -432,7 +446,7 @@ export const GRABS = {
   // Down throw: lifts them and slams them into the floor. They pop up close by.
   dthrow: {
     total: 32, hitboxes: [],
-    throw: { frame: 13, dmg: 6, base: 7.5, growth: 0.35, angle: 78 },
+    throw: { frame: 13, dmg: 6, base: 7.5, growth: 0.55, angle: 78 },
     carry: [[0, 0.88, 0.05], [7, 0.8, 0.9], [13, 0.95, -0.05]],
     onFrame(f, frame, input, world) {
       if (frame === 13) world.effects.shockwave(f.x + 0.95 * f.facing, f.y, 0.9);

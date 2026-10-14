@@ -142,6 +142,21 @@ export const JACOBY = {
     crouch: { rArm: [0.2, -1, 0.35], rFore: [0.8, 0.3, 0.2], lArm: [0.2, -1, -0.3], lFore: [1, 0.8, -0.1] },
   },
 
+  // Victory: inspects the camera up close with the magnifying glass, then
+  // celebrates with a slice of pizza.
+  victory: {
+    quote: 'Case closed. Where are the snacks?',
+    pose: (frame) => {
+      const p = { ...victoryPose(frame) };
+      if (frame >= 56) p.lHeld = 'pizza';
+      return p;
+    },
+    onFrame(frame, { effects, x, y }) {
+      if (frame >= 70 && frame < 100 && frame % 5 === 0) effects.crumbs(x + 0.2, y + 1.6, 0xffcf4a);
+      if (frame === 104) effects.text(x + 0.8, y + 1.45, 'mmm', '#ffd23f', 0.36, 1.2);
+    },
+  },
+
   // CPU habits: dig when there's room, eat when hurt, throw from range.
   cpu(f, { dist }) {
     if (!f.grounded) return null;
@@ -216,7 +231,7 @@ export const JACOBY = {
       total: 40, hitboxes: [],
       available: (f) => !f.handEmpty.right,
       fallback: 'dthrowPlain',
-      throw: { frame: 30, dmg: 3, base: 7.5, growth: 0.4, angle: 80 },
+      throw: { frame: 30, dmg: 3, base: 7.5, growth: 0.6, angle: 80 },
       carry: [[0, 0.88, 0.05], [30, 0.88, 0.05]],
       onFrame(f, frame, input, world) {
         const v = f.holding?.victim;
@@ -482,3 +497,17 @@ export const JACOBY = {
     },
   },
 };
+
+const victoryPose = keyframes([
+  [0, REST],
+  [16, { rArm: [0.55, -0.35, 0.55], rFore: 'mouth', lean: 0.3, look: 0 }],
+  [30, { lean: 0.4, look: -0.1 }],
+  [44, { lean: 0.35, look: 0.1 }],
+  [56, { rArm: IDLE.rArm, rFore: IDLE.rFore, lean: 0.05, lArm: [0.45, -0.85, 0.1], lFore: [0.8, 0.45, 0.45], lProp: 'upright' }],
+  [66, { lArm: [0.45, -0.75, -0.3], lFore: 'mouth' }],
+  [72, { look: -0.12 }],
+  [78, { look: 0.05 }],
+  [84, { look: -0.12 }],
+  [90, { look: 0.05 }],
+  [102, { lArm: [0.3, 0.9, -0.3], lFore: [0.2, 1, -0.1], look: 0.25 }],
+]);
