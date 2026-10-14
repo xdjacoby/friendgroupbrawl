@@ -1,4 +1,4 @@
-import { keyframes } from './poses.js';
+import { keyframes, HOLD } from './poses.js';
 
 // Shared moveset. Frame data is at 60fps.
 //
@@ -23,6 +23,8 @@ import { keyframes } from './poses.js';
 // `available(f)` + `fallback`: if the move can't be used right now, do `fallback` instead.
 // `ledgeGrab: true` lets the fighter grab ledges during the move.
 // `onHit(f, victim, world)` runs when one of the move's hitboxes connects.
+// Grabs and throws (GRABS below): `grab` is a grab box, `pummel`/`throw` act on
+// whoever you're holding, `carry` is the path they follow during a throw.
 //
 // Projectile fields (all optional except speed/life/r and the hit fields):
 //   x, y        spawn offset from the feet    look       'orb', 'cloud' or 'prop' (+ prop: name)
@@ -62,29 +64,32 @@ export const REST = {
 
 export const MOVES = {
   // ---- Ground ----
-  // Jab: quick right, then press attack again for a harder left.
+  // Jab: a lunging right, then press attack again for a harder left. Each
+  // punch steps in a little, so they reach farther than an arm's length.
   jab: {
     total: 16, limb: 'arm', combo: { next: 'jab2', from: 5 },
+    onStart(f) { if (f.grounded) f.vx = 3.5 * f.facing; },
     hitboxes: [
-      { start: 2, end: 4, x: 0.85, y: 1.4, r: 0.45, dmg: 3, base: 3.5, growth: 0.1, angle: 35 },
-      { start: 2, end: 4, x: 0.4, y: 1.35, r: 0.38, dmg: 3, base: 3.5, growth: 0.1, angle: 35 },
+      { start: 2, end: 4, x: 1.05, y: 1.4, r: 0.5, dmg: 3, base: 3.5, growth: 0.1, angle: 35 },
+      { start: 2, end: 4, x: 0.45, y: 1.35, r: 0.4, dmg: 3, base: 3.5, growth: 0.1, angle: 35 },
     ],
     pose: keyframes([
       [0, REST],
-      [2, { rArm: [1, -0.05, 0.25], rFore: [1, 0, 0.05], lFore: [0.9, 0.9, -0.1], lean: 0.2 }],
+      [2, { rArm: [1, -0.05, 0.25], rFore: [1, 0, 0.05], lFore: [0.9, 0.9, -0.1], lean: 0.35 }],
       [6, {}],
       [14, { rArm: REST.rArm, rFore: REST.rFore, lFore: REST.lFore, lean: 0.05 }],
     ]),
   },
   jab2: {
     total: 24, limb: 'arm',
+    onStart(f) { if (f.grounded) f.vx = 4 * f.facing; },
     hitboxes: [
-      { start: 3, end: 5, x: 0.95, y: 1.38, r: 0.5, dmg: 4, base: 6.5, growth: 0.55, angle: 38 },
-      { start: 3, end: 5, x: 0.45, y: 1.32, r: 0.4, dmg: 4, base: 6.5, growth: 0.55, angle: 38 },
+      { start: 3, end: 5, x: 1.2, y: 1.38, r: 0.55, dmg: 4, base: 6.5, growth: 0.55, angle: 38 },
+      { start: 3, end: 5, x: 0.5, y: 1.32, r: 0.42, dmg: 4, base: 6.5, growth: 0.55, angle: 38 },
     ],
     pose: keyframes([
-      [0, { ...REST, rArm: [1, -0.05, 0.25], rFore: [1, 0, 0.05], lean: 0.2 }],
-      [3, { lArm: [1, -0.05, -0.25], lFore: [1, 0, -0.05], rArm: [0.3, -1, 0.3], rFore: [0.9, 0.9, 0.1], lean: 0.3 }],
+      [0, { ...REST, rArm: [1, -0.05, 0.25], rFore: [1, 0, 0.05], lean: 0.35 }],
+      [3, { lArm: [1, -0.05, -0.25], lFore: [1, 0, -0.05], rArm: [0.3, -1, 0.3], rFore: [0.9, 0.9, 0.1], lean: 0.45 }],
       [8, {}],
       [20, { lArm: REST.lArm, lFore: REST.lFore, rArm: REST.rArm, rFore: REST.rFore, lean: 0.05 }],
     ]),
@@ -141,8 +146,8 @@ export const MOVES = {
   nair: {
     total: 32, limb: 'spin', aerial: true, landingLag: 6,
     hitboxes: [
-      { start: 5, end: 14, x: 0, y: 0.95, r: 1.0, dmg: 8, base: 6, growth: 0.7, angle: 45 },
-      { start: 15, end: 22, x: 0, y: 0.95, r: 0.85, dmg: 5, base: 5, growth: 0.5, angle: 50 },
+      { start: 5, end: 14, x: 0, y: 0.95, r: 1.15, dmg: 8, base: 6, growth: 0.7, angle: 45 },
+      { start: 15, end: 22, x: 0, y: 0.95, r: 1.0, dmg: 5, base: 5, growth: 0.5, angle: 50 },
     ],
     pose: keyframes([
       [0, { ...REST, spin: 0 }],
@@ -281,12 +286,7 @@ export const DODGES = {
     onStart(f, input) { f.move.dir = Math.sign(input.x) || f.facing; },
     onFrame(f, frame) {
       f.vx = frame >= 2 && frame <= 18 ? 9 * f.move.dir : f.vx * 0.6;
-      // Rolls stop at the edge instead of carrying you off the stage.
-      const p = f.platform;
-      if (p && f.grounded) {
-        const next = f.x + f.vx / 60;
-        if (next < p.x1 + 0.25 || next > p.x2 - 0.25) f.vx = 0;
-      }
+      stopAtEdge(f); // rolls don't carry you off the stage
       if (frame === 18) f.facing = -f.move.dir;
     },
     pose: () => ({ ...CURL, crouch: 0.6 }),
@@ -326,6 +326,124 @@ export const DODGES = {
   ledgeattack: {
     total: 26, limb: 'leg', intangible: [0, 4],
     hitboxes: [{ start: 5, end: 9, x: 0.9, y: 0.45, r: 0.7, dmg: 8, base: 8, growth: 0.55, angle: 30 }],
+  },
+};
+
+// Stops a sliding move (roll, dash grab) at the edge of whatever you stand on.
+export function stopAtEdge(f) {
+  const p = f.platform;
+  if (!p || !f.grounded) return;
+  const next = f.x + f.vx / 60;
+  if (next < p.x1 + 0.25 || next > p.x2 - 0.25) f.vx = 0;
+}
+
+// ---- Grabs and throws ----
+// Grab (grab button, or attack while shielding): `grab: { start, end, x, y, r }`
+// is a grab box. It catches anyone it touches: shields don't help, dodging does.
+// While holding someone: attack/grab pummels (`pummel: { frame, dmg }`), a
+// direction throws. A throw launches on `throw.frame` (fields like a hitbox;
+// the angle is relative to where you face) and the victim follows `carry`
+// ([[frame, x, y], ...] from your feet) until then. Characters can replace these.
+
+const REACH = {
+  rArm: [1, -0.2, 0.25], rFore: [1, -0.05, -0.1], lArm: [1, -0.2, -0.25], lFore: [1, -0.05, 0.1],
+};
+
+export const GRABS = {
+  grab: {
+    total: 30, hitboxes: [],
+    grab: { start: 6, end: 8, x: 0.8, y: 1.1, r: 0.45 },
+    pose: keyframes([
+      [0, REST],
+      [4, { rArm: [0.5, -0.7, 0.45], rFore: [0.6, 0.4, 0.3], lArm: [0.5, -0.7, -0.45], lFore: [0.6, 0.4, -0.3], lean: -0.05 }],
+      [6, { ...REACH, lean: 0.3 }],
+      [10, {}],
+      [26, REST],
+    ]),
+  },
+  // Running grab: slides in and reaches farther, but whiffs for longer.
+  dashgrab: {
+    total: 38, scripted: true, hitboxes: [],
+    grab: { start: 8, end: 10, x: 0.9, y: 1.1, r: 0.5 },
+    onFrame(f, frame) {
+      f.vx *= frame <= 10 ? 0.93 : 0.75;
+      stopAtEdge(f);
+    },
+    pose: keyframes([
+      [0, { ...REST, lean: 0.2 }],
+      [5, { rArm: [0.5, -0.7, 0.45], rFore: [0.6, 0.4, 0.3], lArm: [0.5, -0.7, -0.45], lFore: [0.6, 0.4, -0.3] }],
+      [8, { ...REACH, lean: 0.5, crouch: 0.3 }],
+      [12, {}],
+      [34, { ...REST, crouch: 0 }],
+    ]),
+  },
+  // Headbutt.
+  pummel: {
+    total: 18, hitboxes: [],
+    pummel: { frame: 6, dmg: 1.5 },
+    pose: keyframes([
+      [0, HOLD],
+      [4, { lean: -0.15, look: 0.25 }],
+      [6, { lean: 0.45, look: -0.3 }],
+      [10, {}],
+      [18, { lean: HOLD.lean, look: 0 }],
+    ]),
+  },
+  // Forward throw: pulls them in, then shoves them away.
+  fthrow: {
+    total: 30, hitboxes: [],
+    throw: { frame: 12, dmg: 8, base: 7.5, growth: 0.6, angle: 40 },
+    carry: [[0, 0.88, 0.05], [7, 0.72, 0.25], [12, 1.2, 0.55]],
+    pose: keyframes([
+      [0, HOLD],
+      [7, { rArm: [0.45, -0.6, 0.65], rFore: [0.8, 0.4, 0.2], lArm: [0.45, -0.6, -0.65], lFore: [0.8, 0.4, -0.2], lean: -0.15 }],
+      [12, { rArm: [1, 0.05, 0.25], rFore: [1, 0.1, 0.05], lArm: [1, 0.05, -0.25], lFore: [1, 0.1, -0.05], lean: 0.4 }],
+      [16, {}],
+      [28, REST],
+    ]),
+  },
+  // Back throw: hoists them over his head and flings them behind. The KO throw.
+  bthrow: {
+    total: 34, hitboxes: [],
+    throw: { frame: 16, dmg: 10, base: 7, growth: 0.85, angle: 140 },
+    carry: [[0, 0.88, 0.05], [5, 0.75, 0.5], [10, 0.2, 1.75], [16, -1.05, 0.7]],
+    pose: keyframes([
+      [0, HOLD],
+      [5, { rArm: [0.7, 0.4, 0.4], rFore: [0.6, 0.8, 0.2], lArm: [0.7, 0.4, -0.4], lFore: [0.6, 0.8, -0.2], lean: 0 }],
+      [10, { rArm: [0.1, 1, 0.3], rFore: [0, 1, 0.1], lArm: [0.1, 1, -0.3], lFore: [0, 1, -0.1], lean: -0.25, look: 0.4 }],
+      [16, { rArm: [-0.75, 0.55, 0.3], rFore: [-0.85, 0.3, 0.1], lArm: [-0.75, 0.55, -0.3], lFore: [-0.85, 0.3, -0.1], lean: -0.5, look: 0.2 }],
+      [20, {}],
+      [32, REST],
+    ]),
+  },
+  // Up throw: heaves them straight up. Sets up juggles.
+  uthrow: {
+    total: 30, hitboxes: [],
+    throw: { frame: 12, dmg: 7, base: 9, growth: 0.55, angle: 88 },
+    carry: [[0, 0.88, 0.05], [6, 0.7, 0.45], [12, 0.15, 1.95]],
+    pose: keyframes([
+      [0, HOLD],
+      [6, { rArm: [0.8, -0.2, 0.4], rFore: [0.6, 0.7, 0.2], lArm: [0.8, -0.2, -0.4], lFore: [0.6, 0.7, -0.2], crouch: 0.4, lean: 0.1 }],
+      [12, { rArm: [0.15, 1, 0.3], rFore: [0.05, 1, 0.1], lArm: [0.15, 1, -0.3], lFore: [0.05, 1, -0.1], crouch: 0, lean: -0.1, look: 0.45 }],
+      [16, {}],
+      [28, { ...REST, look: 0 }],
+    ]),
+  },
+  // Down throw: lifts them and slams them into the floor. They pop up close by.
+  dthrow: {
+    total: 32, hitboxes: [],
+    throw: { frame: 13, dmg: 6, base: 7.5, growth: 0.35, angle: 78 },
+    carry: [[0, 0.88, 0.05], [7, 0.8, 0.9], [13, 0.95, -0.05]],
+    onFrame(f, frame, input, world) {
+      if (frame === 13) world.effects.shockwave(f.x + 0.95 * f.facing, f.y, 0.9);
+    },
+    pose: keyframes([
+      [0, HOLD],
+      [7, { rArm: [0.6, 0.75, 0.35], rFore: [0.6, 0.8, 0.1], lArm: [0.6, 0.75, -0.35], lFore: [0.6, 0.8, -0.1], lean: -0.15, look: 0.2 }],
+      [13, { rArm: [0.65, -0.75, 0.3], rFore: [0.5, -0.9, 0.1], lArm: [0.65, -0.75, -0.3], lFore: [0.5, -0.9, -0.1], lean: 0.6, look: -0.3, crouch: 0.6 }],
+      [18, {}],
+      [30, { ...REST, look: 0 }],
+    ]),
   },
 };
 

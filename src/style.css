@@ -116,6 +116,7 @@ button.primary:hover:not(:disabled) { background: #ffdc6b; }
 .menu-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; justify-content: center; }
 .menu-row label { display: flex; gap: 8px; align-items: center; }
 .hint { color: var(--muted); margin: 0; text-align: center; }
+.hint a { color: var(--accent); }
 
 .controls { max-width: 640px; color: var(--muted); font-size: 0.9rem; }
 .controls summary { cursor: pointer; text-align: center; color: var(--text); }

@@ -21,6 +21,16 @@ const ARMS = { rArm: IDLE.rArm, rFore: IDLE.rFore, lArm: IDLE.lArm, lFore: IDLE.
 const LEGS = { rThigh: REST.rThigh, rShin: REST.rShin, lThigh: REST.lThigh, lShin: REST.lShin };
 const PUFF = 0xeeeef6;
 
+// Hotbox: hold the special button to keep ripping (charge, in frames, up to
+// HOTBOX_CHARGE); the cloud's size and how long it lingers grow with it.
+const HOTBOX_RIP = 10; // bong reaches his mouth; charging starts
+const HOTBOX_CHARGE = 120;
+const liftBong = keyframes([[0, REST], [6, BONG_TO_MOUTH]]);
+const HOTBOX_CLOUD = {
+  look: 'cloud', color: 0xd6ebcf, opacity: 0.3, squash: 0.7, x: 0.6, y: 1.2,
+  drag: 0.04, grow: 4, pierce: true, hitEvery: 15, dmg: 0.8, noKnockback: true, slow: 20, unique: 'hotbox',
+};
+
 export const DRAVEN = {
   id: 'draven',
   name: 'Draven',
@@ -43,13 +53,14 @@ export const DRAVEN = {
     // Tap attack to keep the combo going.
     jab: {
       total: 16, limb: 'arm', combo: { next: 'jab2', from: 5 },
+      onStart(f) { if (f.grounded) f.vx = 3.5 * f.facing; }, // steps into the poke
       hitboxes: [
-        { start: 2, end: 4, x: 0.85, y: 1.42, r: 0.42, dmg: 2.5, base: 3.5, growth: 0.08, angle: 35 },
-        { start: 2, end: 4, x: 0.4, y: 1.35, r: 0.36, dmg: 2.5, base: 3.5, growth: 0.08, angle: 35 },
+        { start: 2, end: 4, x: 1.1, y: 1.42, r: 0.48, dmg: 2.5, base: 3.5, growth: 0.08, angle: 35 },
+        { start: 2, end: 4, x: 0.45, y: 1.35, r: 0.4, dmg: 2.5, base: 3.5, growth: 0.08, angle: 35 },
       ],
       pose: keyframes([
         [0, REST],
-        [2, { lArm: [1, -0.05, -0.15], lFore: [1, 0.05, -0.05], lean: 0.15, glow: 1 }],
+        [2, { lArm: [1, -0.05, -0.15], lFore: [1, 0.05, -0.05], lean: 0.3, glow: 1 }],
         [6, {}],
         [12, { lArm: IDLE.lArm, lFore: IDLE.lFore, lean: 0.05, glow: 0 }],
       ]),
@@ -310,22 +321,49 @@ export const DRAVEN = {
       },
     },
 
-    // DOWN SPECIAL - Hotbox: rips the bong and exhales a huge cloud that hangs
-    // around for 5 seconds. Anyone else inside takes chip damage and slows down.
+    // DOWN SPECIAL - Hotbox: takes a rip from the bong for as long as you
+    // hold the button (like Piranha Plant's Poison Breath), then exhales a
+    // cloud that hangs around. The longer the rip, the bigger the cloud and
+    // the longer it lasts, up to a cap (2 seconds of holding). Opponents
+    // inside take chip damage and slow down. At full charge he lets it out
+    // on his own.
     dspecial: {
-      total: 50, limb: 'arm', scripted: true, projectileFrame: 20, landingLag: 6,
-      projectile: {
-        look: 'cloud', color: 0xd6ebcf, opacity: 0.3, squash: 0.7, x: 0, y: 1.2,
-        speed: 0, life: 300, r: 1.0, grow: 4, maxR: 2.5,
-        pierce: true, hitEvery: 15, dmg: 0.8, noKnockback: true, slow: 20, unique: 'hotbox',
-      },
-      onFrame(f) {
+      total: HOTBOX_RIP + 30, limb: 'arm', scripted: true, landingLag: 6,
+      onStart(f) { f.move.charge = 0; },
+      onFrame(f, frame, input, world) {
+        const m = f.move;
         f.vx *= 0.85;
-        if (!f.grounded) f.vy = Math.max(f.vy - 0.4, -1.2);
+        if (!f.grounded) f.vy = Math.max(f.vy - 0.4, m.released ? -1.2 : -3.5); // no infinite stalling while charging
+        if (frame === HOTBOX_RIP && !m.released) {
+          if (input.specialHeld && m.charge < HOTBOX_CHARGE) {
+            m.charge++;
+            m.frame--; // hold here while he keeps ripping
+            if (m.charge % 7 === 0) world.effects.puff(f.x + 0.25 * f.facing, f.y + 0.9, 0.15 + 0.25 * (m.charge / HOTBOX_CHARGE), 0xd6ebcf, 1.2);
+            if (m.charge === HOTBOX_CHARGE) world.effects.text(f.x, f.y + f.h + 0.6, 'MAX RIP', '#c8f5b0', 0.45, 0.7);
+            return;
+          }
+          m.released = true;
+        }
+        if (frame === HOTBOX_RIP + 4) {
+          const t = m.charge / HOTBOX_CHARGE;
+          world.spawnProjectile(f, {
+            ...HOTBOX_CLOUD,
+            r: 0.8 + 0.4 * t,
+            maxR: 1.4 + 1.3 * t,
+            life: Math.round(150 + 270 * t),
+            speed: 2.5 + 1.5 * t,
+          });
+        }
       },
       hitboxes: [],
-      pose(frame) {
-        if (frame < 18) return BONG_TO_MOUTH;
+      pose(frame, f) {
+        const m = f.move;
+        if (frame < 6) return liftBong(frame);
+        if (frame <= HOTBOX_RIP && !m.released) {
+          // Ripping: leans back a little more the longer he holds it.
+          const t = m.charge / HOTBOX_CHARGE;
+          return { ...BONG_TO_MOUTH, look: 0.1 + 0.25 * t + Math.sin(m.charge * 0.5) * 0.03, lean: -0.05 - 0.2 * t };
+        }
         return { look: 0.6, lean: -0.2, rArm: [0.3, -0.6, 0.8], rFore: [0.6, -0.8, 0.4], lArm: [0.1, -0.2, -1], lFore: [0.2, 0.3, -1] };
       },
     },

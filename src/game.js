@@ -12,7 +12,7 @@ const END_DELAY = 120; // frames to linger after the final KO
 
 function circleHitsBox(cx, cy, r, f) {
   const nx = Math.max(f.x - f.hw, Math.min(cx, f.x + f.hw));
-  const ny = Math.max(f.y, Math.min(cy, f.y + f.h));
+  const ny = Math.max(f.y, Math.min(cy, f.y + f.hurtH));
   return (cx - nx) ** 2 + (cy - ny) ** 2 <= r * r;
 }
 
@@ -85,6 +85,8 @@ export class Game {
   resolveHits() {
     for (const a of this.fighters) {
       if (a.dead) continue;
+      const g = a.move?.def.grab;
+      if (g && a.move.frame >= g.start && a.move.frame <= g.end && a.hitlag === 0) this.tryGrab(a, g);
       const m = a.move;
       for (const hb of a.activeHitboxes()) {
         const [cx, cy] = hitboxWorld(a, hb, m.frame, a.x, a.y);
@@ -103,6 +105,19 @@ export class Game {
     }
   }
 
+  // Grab boxes catch the first fighter they touch. Shields don't stop a grab;
+  // dodges (intangibility) do, and nobody can be in two grabs at once.
+  tryGrab(a, g) {
+    const [cx, cy] = hitboxWorld(a, g, a.move.frame, a.x, a.y);
+    const r = g.r * a.stats.scale;
+    for (const v of this.fighters) {
+      if (v === a || v.dead || v.intangible || v.heldBy || v.holding || v.ledge) continue;
+      if (!circleHitsBox(cx, cy, r, v)) continue;
+      a.catchFighter(v);
+      return;
+    }
+  }
+
   spawnProjectile(owner, def) {
     const s = owner.stats.scale;
     if (def.unique) {
@@ -115,7 +130,7 @@ export class Game {
     if (def.look === 'cloud') {
       mesh = this.effects.makeCloud(def.color ?? 0xf0f0f5, def.opacity, def.squash);
     } else if (def.look === 'prop') {
-      // A thrown prop (e.g. Jacoby's microscope). Spins in flight, stands up when it lands.
+      // A thrown prop (e.g. Jacoby's magnifying glass or a snack). Spins in flight.
       mesh = new THREE.Group();
       mesh.add(createProp(def.prop).object);
       mesh.scale.setScalar(s);
@@ -205,6 +220,32 @@ export class Game {
     return true;
   }
 
+  // Thrown things that aren't picked back up (Jacoby's snacks): they arc down
+  // and burst when they land, or roll along the floor if `roll` is set.
+  stepThrown(p) {
+    const def = p.hb;
+    const prevY = p.y;
+    p.vy -= def.gravity / 60;
+    p.y += p.vy / 60;
+    const floor = p.vy <= 0 ? this.floorUnder(p.x, prevY, p.y) : null;
+    if (floor !== null) {
+      p.y = floor;
+      if (!def.roll) return false;
+      p.vy = 0;
+      p.rolling = true;
+    }
+    const m = this.stage.main;
+    if (p.x > m.x1 && p.x < m.x2 && p.y < m.top - 0.05 && p.y > m.bottom) return false; // hit the stage's side
+    const b = this.stage.blast;
+    return p.life > 0 && p.y > b.bottom && p.x > b.left && p.x < b.right;
+  }
+
+  removeProjectile(p) {
+    if (p.hb.burst !== undefined) this.effects.debris(p.x, p.y + 0.15, p.hb.burst, { count: 7, size: 0.06, speed: 2.5, up: 3.5, life: 0.5 });
+    p.mesh.removeFromParent();
+    p.mesh.traverse((o) => o.material?.dispose());
+  }
+
   stepProjectiles() {
     const m = this.stage.main;
     this.projectiles = this.projectiles.filter((p) => {
@@ -216,6 +257,7 @@ export class Game {
       p.x += p.vx / 60;
       let alive = p.life > 0;
       if (def.pickup) alive = this.stepPickup(p);
+      else if (def.gravity !== undefined) alive = this.stepThrown(p);
       else if (!def.pierce && p.x > m.x1 && p.x < m.x2 && p.y < m.top && p.y > m.bottom) alive = false;
       if (alive && !p.spent) {
         for (const v of this.fighters) {
@@ -241,10 +283,7 @@ export class Game {
           }
         }
       }
-      if (!alive) {
-        p.mesh.removeFromParent();
-        p.mesh.traverse((o) => o.material?.dispose());
-      }
+      if (!alive) this.removeProjectile(p);
       return alive;
     });
   }
@@ -376,7 +415,7 @@ export class Game {
       p.mesh.position.set(p.x, p.y, 0);
       if (p.hb.look === 'prop') {
         if (p.resting) {
-          p.mesh.rotation.z = 0;
+          p.mesh.rotation.z = p.hb.restAngle ?? 0;
           p.mesh.position.y += (p.hb.restLift ?? 0) * p.owner.stats.scale;
         } else {
           p.mesh.rotation.z -= dt * (p.hb.spin ?? 12) * Math.sign(p.vx || 1);
@@ -462,11 +501,17 @@ export class Game {
     };
     for (const f of this.fighters) {
       if (f.dead) continue;
-      shape('box', f.intangible ? 0x4aa8ff : 0xffe14a, f.x, f.y + f.h / 2, f.hw * 2, f.h, 0.25);
+      shape('box', f.intangible ? 0x4aa8ff : 0xffe14a, f.x, f.y + f.hurtH / 2, f.hw * 2, f.hurtH, 0.25);
       for (const hb of f.activeHitboxes()) {
         const [x, y] = hitboxWorld(f, hb, f.move.frame, f.x, f.y);
         const r = hb.r * f.stats.scale;
         shape('circle', hb.prop ? 0xff8a1f : 0xff2a2a, x, y, r, r, 0.45);
+      }
+      const g = f.move?.def.grab;
+      if (g && f.move.frame >= g.start && f.move.frame <= g.end) {
+        const [x, y] = hitboxWorld(f, g, f.move.frame, f.x, f.y);
+        const r = g.r * f.stats.scale;
+        shape('circle', 0xb04aff, x, y, r, r, 0.45);
       }
     }
     for (const p of this.projectiles) {

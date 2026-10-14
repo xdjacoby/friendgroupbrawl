@@ -63,50 +63,31 @@ function dabPen() {
   };
 }
 
-// A chunky cartoon microscope. Held by its curved arm: the base hangs below
-// the hand (or swings out past it like a hammer head in 'club' mode).
-function microscope() {
+// A big cartoon magnifying glass. Held by the wooden handle; the lens sits
+// past the hand (out in front like a racket head in 'club' mode). The lens
+// faces the camera so it reads as a glass, with a shine across it.
+function magnifyingGlass() {
   const group = new THREE.Group();
-  const white = new THREE.MeshStandardMaterial({ color: 0xf4f2ec, roughness: 0.45 });
-  const black = new THREE.MeshStandardMaterial({ color: 0x23232b, roughness: 0.4 });
-  const chrome = new THREE.MeshStandardMaterial({ color: 0xc9d1dc, roughness: 0.2, metalness: 0.8 });
-  const lamp = new THREE.MeshStandardMaterial({ color: 0xfff3b0, emissive: 0xffd34d, emissiveIntensity: 0.6 });
-
-  const base = part(new THREE.BoxGeometry(0.13, 0.032, 0.1), white, -0.155, group);
-  base.position.x = 0.03;
-  const post = part(new THREE.CylinderGeometry(0.018, 0.022, 0.06, 10), white, -0.11, group);
-  post.position.x = -0.005;
-  // The curved arm (where the hand grips), opening toward the front.
-  const arm = part(new THREE.TorusGeometry(0.06, 0.017, 8, 16, Math.PI), white, -0.02, group);
-  arm.rotation.z = Math.PI / 2;
-  arm.position.x = 0.055;
-  const stage = part(new THREE.BoxGeometry(0.085, 0.01, 0.075), black, -0.07, group);
-  stage.position.x = 0.065;
-  const light = part(new THREE.CylinderGeometry(0.014, 0.014, 0.012, 10), lamp, -0.13, group);
-  light.position.x = 0.065;
-  const knob = part(new THREE.CylinderGeometry(0.024, 0.024, 0.07, 12).rotateX(Math.PI / 2), chrome, -0.05, group);
-  knob.position.x = 0.0;
-  // Body tube + eyepiece, tilted back toward the viewer like a real one.
-  const tube = part(new THREE.CylinderGeometry(0.022, 0.022, 0.12, 12), black, 0.07, group);
-  tube.position.x = 0.075;
-  tube.rotation.z = 0.25;
-  const eyepiece = part(new THREE.CylinderGeometry(0.015, 0.017, 0.05, 10), black, 0.15, group);
-  eyepiece.position.x = 0.055;
-  eyepiece.rotation.z = 0.35;
-  // Objective lenses with colored rings.
-  [0xe74c3c, 0xf1c40f, 0x3498db].forEach((ring, i) => {
-    const lens = part(new THREE.CylinderGeometry(0.008, 0.01, 0.035, 8), chrome, -0.025, group);
-    lens.position.x = 0.07 + (i - 1) * 0.016;
-    lens.rotation.z = (i - 1) * 0.25;
-    const band = part(new THREE.CylinderGeometry(0.0105, 0.0105, 0.006, 8), new THREE.MeshStandardMaterial({ color: ring }), -0.03, group);
-    band.position.x = lens.position.x;
-    band.rotation.z = lens.rotation.z;
+  const wood = new THREE.MeshStandardMaterial({ color: 0x8b4a22, roughness: 0.6 });
+  const brass = new THREE.MeshStandardMaterial({ color: 0xd9a628, roughness: 0.3, metalness: 0.6, emissive: 0x3a2a00 });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0xbfe8ff, transparent: true, opacity: 0.35, roughness: 0.05, emissive: 0x1a3a50, depthWrite: false,
   });
-  group.scale.setScalar(1.35);
+  const shine = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
+
+  part(new THREE.CylinderGeometry(0.02, 0.024, 0.15, 12), wood, 0.03, group); // handle
+  part(new THREE.SphereGeometry(0.024, 10, 8), wood, 0.105, group); // knob on the end
+  part(new THREE.CylinderGeometry(0.022, 0.018, 0.04, 12), brass, -0.065, group); // ferrule
+  part(new THREE.TorusGeometry(0.09, 0.014, 10, 32), brass, -0.175, group); // rim
+  part(new THREE.CylinderGeometry(0.088, 0.088, 0.008, 32).rotateX(Math.PI / 2), glass, -0.175, group); // lens
+  const glint = part(new THREE.PlaneGeometry(0.018, 0.09), shine, -0.15, group);
+  glint.position.set(-0.03, -0.15, 0.006);
+  glint.rotation.z = -0.6;
+  group.scale.setScalar(1.5); // chunky enough to read at gameplay distance
   return { object: group, setGlow() {} };
 }
 
-// ---- Snacks Jacoby digs up (held in the left hand while he eats) ----
+// ---- Snacks Jacoby digs up (held in his left hand until he eats or throws them) ----
 
 function chips() {
   const group = new THREE.Group();
@@ -180,21 +161,32 @@ function pizza() {
   return { object: group, setGlow() {} };
 }
 
-// A 2-liter of cola, cap toward -y so it sprays down when held under him.
-function soda() {
+// A family-size bag of chips, blown up like a balloon (they're mostly air).
+// Held by the bottom crimp with the bag above the hand ('upright'); `glow`
+// inflates it, from a limp bag at 0 to fully puffed at 1.
+function chipBag() {
   const group = new THREE.Group();
-  const bottle = new THREE.MeshStandardMaterial({ color: 0x7ad99a, transparent: true, opacity: 0.55, roughness: 0.1, depthWrite: false });
-  const cola = new THREE.MeshStandardMaterial({ color: 0x5a2d0c, roughness: 0.3 });
-  const red = new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.5 });
-  part(new THREE.CylinderGeometry(0.042, 0.042, 0.16, 14), cola, 0.07, group);
-  part(new THREE.CylinderGeometry(0.05, 0.05, 0.2, 16), bottle, 0.07, group);
-  part(new THREE.CylinderGeometry(0.052, 0.052, 0.06, 16), red, 0.07, group);
-  part(new THREE.CylinderGeometry(0.018, 0.05, 0.06, 14), bottle, -0.06, group);
-  part(new THREE.CylinderGeometry(0.021, 0.021, 0.025, 12), red, -0.1, group);
-  return { object: group, setGlow() {} };
+  const bag = new THREE.Group();
+  group.add(bag);
+  const foil = new THREE.MeshStandardMaterial({ color: 0x2d7fd8, roughness: 0.3, metalness: 0.35 });
+  const label = new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.5 });
+  const crimp = new THREE.MeshStandardMaterial({ color: 0xcfd6de, roughness: 0.3, metalness: 0.6 });
+  const pillow = part(new THREE.SphereGeometry(0.2, 20, 14), foil, 0.32, bag);
+  pillow.scale.set(1.15, 1.45, 0.75);
+  const badge = part(new THREE.CircleGeometry(0.11, 20), label, 0.32, bag);
+  badge.position.z = 0.15;
+  part(new THREE.BoxGeometry(0.34, 0.035, 0.05), crimp, 0.02, bag);
+  part(new THREE.BoxGeometry(0.34, 0.035, 0.05), crimp, 0.62, bag);
+  group.scale.setScalar(1.5); // balloon-sized
+  return {
+    object: group,
+    setGlow(v) {
+      bag.scale.set(0.45 + 0.9 * v, 0.6 + 0.8 * v, 0.3 + 0.9 * v);
+    },
+  };
 }
 
-const MAKERS = { bong, dabPen, microscope, chips, cookie, donut, pizza, soda };
+const MAKERS = { bong, dabPen, magnifyingGlass, chips, cookie, donut, pizza, chipBag };
 
 export function createProp(name) {
   const make = MAKERS[name];
