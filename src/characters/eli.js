@@ -15,7 +15,7 @@ import { REST as GUARD_REST, GRABS } from '../moves.js';
 // BRAINROTTED: left and right swap for a few seconds.
 const ROT_STACKS = 3;
 const ROT_FRAMES = 180; // how long the controls stay swapped
-const ROT_KEEP = 360; // stacks wear off this long after the last one
+const ROT_KEEP = 480; // stacks wear off this long after the last one
 
 function brainrot(v, eli, world) {
   const st = v.status;
@@ -62,7 +62,7 @@ function kirkSplit(p, world) {
 }
 const MINI_KIRK = {
   look: 'bubble', text: 'kirk', color: '#ffb31f', speed: 0, life: 24, r: 0.26, dmg: 3, base: 4, growth: 0.2, angle: 50,
-  mini: true, noRot: true, update: drift,
+  mini: true, update: drift,
 };
 
 // FUNKY EHH wobbles out, then turns around and flies back to him like a
@@ -453,10 +453,11 @@ export const ELI = {
         world.spawnProjectile(f, {
           look: 'bubble', x: 0.75, y: 1.85, ...def, vy: aim * def.speed * 0.45,
           onHit: (p, v, w, result) => {
-            gainClout(p.owner, CLOUT_BUBBLE, w);
+            if (p.owner !== f) return; // parried back at him: no clout for that
+            gainClout(f, CLOUT_BUBBLE, w);
             if (result === 'hit' && !rotted.has(v)) {
               rotted.add(v);
-              brainrot(v, p.owner, w);
+              brainrot(v, f, w);
             }
           },
         });
