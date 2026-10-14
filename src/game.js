@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { Fighter } from './fighter.js';
-import { SHOCKWAVE } from './moves.js';
+import { SHOCKWAVE, hitboxPos } from './moves.js';
 import { createStage, buildStageScene } from './stage.js';
 import { FighterView } from './view.js';
 import { Effects } from './effects.js';
 import { Hud } from './hud.js';
 import { SLOT_COLORS } from './roster.js';
+import { createProp } from './props.js';
 
 const END_DELAY = 120; // frames to linger after the final KO
 
@@ -13,6 +14,24 @@ function circleHitsBox(cx, cy, r, f) {
   const nx = Math.max(f.x - f.hw, Math.min(cx, f.x + f.hw));
   const ny = Math.max(f.y, Math.min(cy, f.y + f.h));
   return (cx - nx) ** 2 + (cy - ny) ** 2 <= r * r;
+}
+
+// A hitbox that moved since last frame sweeps the whole gap, so fast swings
+// and lunges can't skip past someone between two frames.
+function sweepHitsBox(x0, y0, x1, y1, r, f) {
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / (r * 0.5));
+  for (let i = 0; i <= steps; i++) {
+    const t = steps ? i / steps : 1;
+    if (circleHitsBox(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r, f)) return true;
+  }
+  return false;
+}
+
+// World-space center of a fighter's hitbox on a given frame and position.
+function hitboxWorld(a, hb, frame, x, y) {
+  const s = a.stats.scale;
+  const [hx, hy] = hitboxPos(hb, frame);
+  return [x + hx * s * a.facing, y + hy * s];
 }
 
 // One match: simulation + its scene. Create a new Game per match.
@@ -44,6 +63,7 @@ export class Game {
     this.projectiles = [];
     this.projectileGeo = new THREE.SphereGeometry(1, 16, 12);
     this.hud = new Hud(this.fighters);
+    this.showHitboxes = false;
   }
 
   // ---- Simulation ----
@@ -60,20 +80,24 @@ export class Game {
     this.stepProjectiles();
   }
 
+  // Hitboxes earlier in a move's list win when two of the same group overlap
+  // someone, so list sweet spots first.
   resolveHits() {
     for (const a of this.fighters) {
       if (a.dead) continue;
+      const m = a.move;
       for (const hb of a.activeHitboxes()) {
-        const s = a.stats.scale;
-        const cx = a.x + hb.x * s * a.facing;
-        const cy = a.y + hb.y * s;
-        const r = hb.r * s;
+        const [cx, cy] = hitboxWorld(a, hb, m.frame, a.x, a.y);
+        const swept = m.frame - 1 >= hb.start;
+        const [px, py] = swept ? hitboxWorld(a, hb, m.frame - 1, a.prevX, a.prevY) : [cx, cy];
+        const r = hb.r * a.stats.scale;
         for (const v of this.fighters) {
-          if (v === a || v.dead || v.intangible || a.move?.hit.has(v)) continue;
-          if (!circleHitsBox(cx, cy, r, v)) continue;
-          a.move.hit.add(v);
-          v.takeHit(a, hb, a.facing, this);
+          if (v === a || v.dead || v.intangible || a.move !== m || a.hasHit(v, hb)) continue;
+          if (!sweepHitsBox(px, py, cx, cy, r, v)) continue;
+          a.markHit(v, hb);
+          const result = v.takeHit(a, hb, a.facing, this);
           this.effects.spark((cx + v.x) / 2, Math.min(cy, v.y + v.h * 0.6), 0xfff2a8, 0.35 + hb.dmg * 0.04);
+          if (result === 'hit') m.def.onHit?.(a, v, this);
         }
       }
     }
@@ -90,24 +114,95 @@ export class Game {
     let mesh;
     if (def.look === 'cloud') {
       mesh = this.effects.makeCloud(def.color ?? 0xf0f0f5, def.opacity, def.squash);
+    } else if (def.look === 'prop') {
+      // A thrown prop (e.g. Jacoby's microscope). Spins in flight, stands up when it lands.
+      mesh = new THREE.Group();
+      mesh.add(createProp(def.prop).object);
+      mesh.scale.setScalar(s);
     } else {
       mesh = new THREE.Mesh(this.projectileGeo, new THREE.MeshBasicMaterial({ color: owner.character.color }));
     }
     this.scene.add(mesh);
+    if (def.pickup) owner.handEmpty[def.pickup] = true;
     this.projectiles.push({
       owner,
-      stats: owner.stats,
+      power: owner.power,
       x: owner.x + (def.x ?? 0.7) * s * owner.facing,
       y: owner.y + (def.y ?? 1.2) * s,
       vx: def.speed * owner.facing,
+      vy: def.vy ?? 0,
       r: def.r * s,
       maxR: (def.maxR ?? def.r) * s,
       life: def.life,
       age: 0,
       hits: new Map(), // victim -> age of last hit, for multi-hit clouds
+      spent: false, // a pickup that already hit something or touched the ground
+      resting: false,
       hb: def,
       mesh,
     });
+  }
+
+  // The floor a falling point crosses this frame, if any.
+  floorUnder(x, prevY, y) {
+    const m = this.stage.main;
+    if (x > m.x1 && x < m.x2 && prevY >= m.top - 0.01 && y < m.top) return m.top;
+    for (const p of this.stage.platforms) {
+      if (x >= p.x1 && x <= p.x2 && prevY >= p.y - 0.01 && y < p.y) return p.y;
+    }
+    return null;
+  }
+
+  // Pickups (def.pickup = the hand it came from) bounce off whoever they hit,
+  // settle on the floor, and go back to the owner's hand when touched. If one
+  // is lost off the stage, or left lying around, it pops back after a while.
+  stepPickup(p) {
+    const def = p.hb;
+    const prevY = p.y;
+    if (!p.resting) {
+      p.vy -= (def.gravity ?? 20) / 60;
+      p.y += p.vy / 60;
+      const m = this.stage.main;
+      const floor = p.vy <= 0 ? this.floorUnder(p.x, prevY, p.y) : null;
+      if (floor !== null) {
+        p.y = floor;
+        p.spent = true;
+        if (p.vy < -5) {
+          p.vy *= -0.3;
+          p.vx *= 0.5;
+        } else {
+          p.resting = true;
+          p.vx = p.vy = 0;
+          p.life = def.restLife ?? 600;
+        }
+      } else if (p.x > m.x1 && p.x < m.x2 && p.y < m.top && p.y > m.bottom) {
+        // Hit the underside or a side wall of the stage: bounce off it.
+        if (prevY <= m.bottom) {
+          p.y = m.bottom - 0.01;
+          p.vy = -Math.abs(p.vy) * 0.3;
+        } else {
+          p.x = p.vx > 0 ? m.x1 - 0.01 : m.x2 + 0.01;
+          p.vx *= -0.3;
+        }
+        p.spent = true;
+      }
+    }
+    const o = p.owner;
+    if ((p.resting || p.spent) && !o.dead && circleHitsBox(p.x, p.y + 0.2, p.r + 0.25, o)) {
+      o.regainProp(def.pickup, this);
+      return false;
+    }
+    const b = this.stage.blast;
+    if (p.y < b.bottom || p.x < b.left || p.x > b.right) {
+      o.propReturn = { side: def.pickup, timer: def.returnFrames ?? 180 };
+      return false;
+    }
+    if (p.life <= 0) {
+      this.effects.puff(p.x, p.y + 0.2, 0.5, 0xffffff, 0.4);
+      o.regainProp(def.pickup, this);
+      return false;
+    }
+    return true;
   }
 
   stepProjectiles() {
@@ -120,8 +215,9 @@ export class Game {
       if (def.grow) p.r = Math.min(p.maxR, p.r + def.grow / 60);
       p.x += p.vx / 60;
       let alive = p.life > 0;
-      if (!def.pierce && p.x > m.x1 && p.x < m.x2 && p.y < m.top && p.y > m.bottom) alive = false;
-      if (alive) {
+      if (def.pickup) alive = this.stepPickup(p);
+      else if (!def.pierce && p.x > m.x1 && p.x < m.x2 && p.y < m.top && p.y > m.bottom) alive = false;
+      if (alive && !p.spent) {
         for (const v of this.fighters) {
           if (v === p.owner || v.dead || v.intangible) continue;
           if (!circleHitsBox(p.x, p.y, p.r, v)) continue;
@@ -132,6 +228,13 @@ export class Game {
           }
           v.takeHit(p, def, Math.sign(p.vx) || Math.sign(v.x - p.x) || 1, this);
           if (!def.noKnockback) this.effects.spark(v.x, v.y + v.h * 0.6, p.owner.character.color, 0.4);
+          if (def.pickup) {
+            // Bonk: bounce back off them and fall to the floor.
+            p.spent = true;
+            p.vx *= -0.3;
+            p.vy = Math.max(p.vy, 5);
+            break;
+          }
           if (!def.pierce) {
             alive = false;
             break;
@@ -215,7 +318,7 @@ export class Game {
   tryLedgeGrab(f) {
     if (f.ledge || f.grounded || f.dead || f.hitstun > 0 || f.ledgeCooldown > 0) return;
     const m = f.move;
-    if (m && m.name !== 'uspecial' && m.name !== 'airdodge') return;
+    if (m && m.name !== 'uspecial' && m.name !== 'airdodge' && !m.def.ledgeGrab) return;
     if (f.vy + f.kby > 0 && m?.name !== 'uspecial') return; // still rising past it
     const s = f.stats.scale;
     for (const lg of this.stage.ledges) {
@@ -240,6 +343,13 @@ export class Game {
   }
 
   onKO(f) {
+    // A KO'd fighter respawns with their props back in hand.
+    this.projectiles = this.projectiles.filter((p) => {
+      if (p.owner !== f || !p.hb.pickup) return true;
+      p.mesh.removeFromParent();
+      p.mesh.traverse((o) => o.material?.dispose());
+      return false;
+    });
     const b = this.stage.blast;
     const x = Math.max(b.left + 3, Math.min(b.right - 3, f.x));
     const y = Math.max(b.bottom + 3, Math.min(b.top - 3, f.y));
@@ -264,7 +374,14 @@ export class Game {
     for (const v of this.views) v.update(dt, this.time);
     for (const p of this.projectiles) {
       p.mesh.position.set(p.x, p.y, 0);
-      if (p.hb.look === 'cloud') {
+      if (p.hb.look === 'prop') {
+        if (p.resting) {
+          p.mesh.rotation.z = 0;
+          p.mesh.position.y += (p.hb.restLift ?? 0) * p.owner.stats.scale;
+        } else {
+          p.mesh.rotation.z -= dt * (p.hb.spin ?? 12) * Math.sign(p.vx || 1);
+        }
+      } else if (p.hb.look === 'cloud') {
         // Fade in over the first few frames, out over the last 30.
         const alpha = Math.min(1, p.age / 6, p.life / 30);
         this.effects.updateCloud(p.mesh, p.r, alpha, this.time);
@@ -273,6 +390,7 @@ export class Game {
       }
     }
     this.effects.update(dt);
+    this.drawHitboxes();
     this.updateCamera(dt);
     this.hud.update();
     this.renderer.render(this.scene, this.camera);
@@ -313,6 +431,50 @@ export class Game {
     this.camera.lookAt(this.camTarget);
   }
 
+  // Debug view: hurtboxes (yellow, blue while intangible) and active hitboxes (red).
+  drawHitboxes() {
+    if (!this.debugLayer) {
+      if (!this.showHitboxes) return;
+      this.debugLayer = new THREE.Group();
+      this.debugLayer.renderOrder = 20;
+      this.scene.add(this.debugLayer);
+      this.debugGeo = { circle: new THREE.CircleGeometry(1, 28), box: new THREE.PlaneGeometry(1, 1) };
+      this.debugPool = [];
+    }
+    this.debugLayer.visible = this.showHitboxes;
+    if (!this.showHitboxes) return;
+    let used = 0;
+    const shape = (kind, color, x, y, sx, sy, opacity) => {
+      let mesh = this.debugPool[used];
+      if (!mesh) {
+        mesh = new THREE.Mesh(this.debugGeo.circle, new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false }));
+        mesh.renderOrder = 20;
+        this.debugLayer.add(mesh);
+        this.debugPool.push(mesh);
+      }
+      used++;
+      mesh.visible = true;
+      mesh.geometry = this.debugGeo[kind];
+      mesh.material.color.setHex(color);
+      mesh.material.opacity = opacity;
+      mesh.position.set(x, y, 1.2);
+      mesh.scale.set(sx, sy, 1);
+    };
+    for (const f of this.fighters) {
+      if (f.dead) continue;
+      shape('box', f.intangible ? 0x4aa8ff : 0xffe14a, f.x, f.y + f.h / 2, f.hw * 2, f.h, 0.25);
+      for (const hb of f.activeHitboxes()) {
+        const [x, y] = hitboxWorld(f, hb, f.move.frame, f.x, f.y);
+        const r = hb.r * f.stats.scale;
+        shape('circle', hb.prop ? 0xff8a1f : 0xff2a2a, x, y, r, r, 0.45);
+      }
+    }
+    for (const p of this.projectiles) {
+      if (!p.spent) shape('circle', 0xff2a7a, p.x, p.y, p.r, p.r, 0.4);
+    }
+    for (let i = used; i < this.debugPool.length; i++) this.debugPool[i].visible = false;
+  }
+
   resize(w, h) {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -320,11 +482,13 @@ export class Game {
 
   dispose() {
     this.hud.dispose();
+    this.scene.background?.dispose?.();
     this.scene.traverse((o) => {
-      o.geometry?.dispose();
+      // Loaded models share geometry and textures with the cache for the next match.
+      if (!o.userData.cached) o.geometry?.dispose();
       const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
       for (const m of mats) {
-        m.map?.dispose();
+        if (!o.userData.cached) m.map?.dispose();
         m.dispose();
       }
     });

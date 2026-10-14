@@ -155,18 +155,28 @@ export class FighterView {
     this.root.add(sprite);
   }
 
-  // character.props = { right: 'bong', left: 'dabPen' }
+  // character.props = { right: 'bong', left: 'dabPen' }. Moves can also put
+  // something else in a hand for a moment (pose.rHeld / pose.lHeld), so each
+  // hand keeps every prop it has shown and only one is visible at a time.
   buildProps(props = {}) {
-    this.props = [];
+    this.defaultProps = props;
+    this.hands = {};
     for (const side of ['right', 'left']) {
-      if (!props[side]) continue;
-      const prop = createProp(props[side]);
-      if (!prop) continue;
       const holder = new THREE.Group();
-      holder.add(prop.object);
       this.body.add(holder);
-      this.props.push({ side, prop, holder });
+      this.hands[side] = { holder, props: {} };
     }
+    for (const side of ['right', 'left']) if (props[side]) this.handProp(side, props[side]);
+  }
+
+  handProp(side, name) {
+    const hand = this.hands[side];
+    if (!(name in hand.props)) {
+      const prop = createProp(name);
+      if (prop) hand.holder.add(prop.object);
+      hand.props[name] = prop;
+    }
+    return hand.props[name];
   }
 
   async tryLoadModel(url) {
@@ -194,6 +204,8 @@ export class FighterView {
     }
 
     // Files exported without materials/textures get a clay look tinted with the character color.
+    // Textured ones get their own copy of each material so hit flashes don't
+    // light up every fighter using the same model.
     const untextured = !gltf.parser.json.materials?.length;
     const clay = untextured && new THREE.MeshStandardMaterial({
       color: new THREE.Color(0xd8c8b8).lerp(new THREE.Color(this.f.character.color), 0.3),
@@ -205,11 +217,20 @@ export class FighterView {
     holder.rotation.y = Math.PI / 2; // glTF faces +z; gameplay "forward" is +x
     holder.add(model);
     model.traverse((o) => {
+      o.userData.cached = true; // geometry and textures are shared with the model cache
       if (o.isMesh) {
         o.castShadow = true;
         o.frustumCulled = false; // skinned bounds don't follow procedural poses
         if (clay) o.material = clay;
+        else o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
         const mats = Array.isArray(o.material) ? o.material : [o.material];
+        // Scans export as fully metallic, which renders dark and muddy with no
+        // reflections around. People aren't metal.
+        for (const mat of mats) {
+          if (mat.metalness === undefined) continue;
+          mat.metalness = 0;
+          mat.metalnessMap = null;
+        }
         for (const mat of mats) if (mat.emissive && !this.materials.includes(mat)) this.materials.push(mat);
       }
     });
@@ -282,11 +303,15 @@ export class FighterView {
       else mat.emissive.setScalar(flash);
     }
 
+    const pose = computePose(f, time);
     const m = f.move;
     if (m?.name === 'roll') {
       // One full forward roll in the direction of travel.
       const t = Math.max(0, Math.min(1, (m.frame - 2) / 16));
       this.tumble.rotation.z = -t * Math.PI * 2 * m.dir;
+    } else if (m && pose.pitch !== undefined) {
+      // Flips (e.g. a backflip kick) turn the whole body around the waist.
+      this.tumble.rotation.z = pose.pitch * f.facing;
     } else {
       // Tumble when launched hard
       const tumbling = f.hitstun > 12 && !f.grounded;
@@ -297,8 +322,8 @@ export class FighterView {
     this.body.position.z = lerp(this.body.position.z, sidestep, Math.min(1, dt * 25));
     this.root.updateMatrixWorld(true);
 
-    const pose = computePose(f, time);
-    const k = Math.min(1, dt * 22);
+    // Attacks follow their keyframes closely so the swing lines up with the hitbox.
+    const k = Math.min(1, dt * (pose.state === 'attack' ? 45 : 22));
     if (this.rig) this.animatePlaceholder(pose, k);
     else if (this.puppet) this.animatePuppet(pose, dt, k);
     else this.animateModel(dt);
@@ -361,9 +386,14 @@ export class FighterView {
   // Keep held props in the hands: 'club' lines the prop up with the forearm,
   // 'upright' holds it vertical (e.g. lifting the bong to take a rip).
   updateProps(pose) {
-    if (!this.props.length) return;
     this.body.getWorldQuaternion(_invBody).invert();
-    for (const { side, prop, holder } of this.props) {
+    for (const side of ['right', 'left']) {
+      const { holder, props } = this.hands[side];
+      const held = side === 'right' ? pose.rHeld : pose.lHeld;
+      const name = held !== undefined ? held : this.f.handEmpty[side] ? null : this.defaultProps[side];
+      const prop = name ? this.handProp(side, name) : null;
+      for (const p of Object.values(props)) if (p) p.object.visible = p === prop;
+      if (!prop) continue;
       const { hand, elbow } = this.sockets[side];
       hand.getWorldPosition(_hand);
       elbow.getWorldPosition(_elbow);

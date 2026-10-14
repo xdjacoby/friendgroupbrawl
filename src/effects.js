@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-// Short-lived visual effects: hit sparks, KO blasts, shockwave rings.
+// Short-lived visual effects: hit sparks, KO blasts, shockwave rings, pop-up text, debris.
 export class Effects {
   constructor(scene) {
     this.scene = scene;
@@ -98,11 +98,71 @@ export class Effects {
     this.koBlast(f.x, f.y + 1, 0x99ccff);
   }
 
+  // Cartoon text that pops up and floats away (heal numbers, "?", "CHOMP!").
+  text(x, y, str, color = '#ffffff', size = 0.55, life = 1.0) {
+    const font = '900 92px system-ui, sans-serif';
+    const canvas = document.createElement('canvas');
+    let ctx = canvas.getContext('2d');
+    ctx.font = font;
+    canvas.width = Math.ceil(ctx.measureText(str).width + 48); // fit the text
+    canvas.height = 128;
+    ctx = canvas.getContext('2d'); // resizing resets the context
+    ctx.font = font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 18;
+    ctx.strokeStyle = '#1d1630';
+    ctx.strokeText(str, canvas.width / 2, 66);
+    ctx.fillStyle = color;
+    ctx.fillText(str, canvas.width / 2, 66);
+    const aspect = canvas.width / canvas.height;
+    const map = new THREE.CanvasTexture(canvas);
+    map.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthTest: false }));
+    sprite.renderOrder = 12;
+    sprite.position.set(x, y, 1);
+    this.add(sprite, life, (m, t) => {
+      const pop = t < 0.12 ? 0.6 + (t / 0.12) * 0.5 : 1.1 - Math.min(0.1, (t - 0.12));
+      m.scale.set(size * aspect * pop, size * pop, 1);
+      m.position.y = y + t * 0.8;
+      m.material.opacity = t > 0.6 ? 1 - (t - 0.6) / 0.4 : 1;
+    });
+  }
+
+  // Little chunks thrown out with gravity (dirt from digging, snack crumbs).
+  debris(x, y, color, { count = 6, size = 0.07, speed = 3, up = 4, dir = 0, life = 0.6 } = {}) {
+    for (let i = 0; i < count; i++) {
+      const mesh = new THREE.Mesh(this.sphere, new THREE.MeshBasicMaterial({ color, transparent: true })); // flat cartoon colors
+      mesh.position.set(x, y, (Math.random() - 0.5) * 0.4);
+      const vx = dir * speed * (0.5 + Math.random()) + (Math.random() - 0.5) * speed;
+      let vy = up * (0.6 + Math.random() * 0.6);
+      const s = size * (0.6 + Math.random() * 0.8);
+      mesh.scale.setScalar(s);
+      this.add(mesh, life, (m, t) => {
+        vy -= 18 / 60;
+        m.position.x += vx / 60;
+        m.position.y += vy / 60;
+        m.rotation.x += 0.3;
+        m.material.opacity = t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1;
+      });
+    }
+  }
+
+  dirt(x, y, dir) {
+    this.debris(x, y, 0x8a5a2b, { count: 5, size: 0.09, speed: 2.5, up: 5, dir });
+  }
+
+  crumbs(x, y, color = 0xe0b46a) {
+    this.debris(x, y, color, { count: 4, size: 0.045, speed: 1.5, up: 2, life: 0.5 });
+  }
+
   update(dt) {
     this.items = this.items.filter((it) => {
       it.life -= dt;
       if (it.life <= 0) {
         it.mesh.removeFromParent();
+        it.mesh.material.map?.dispose();
         it.mesh.material.dispose();
         return false;
       }

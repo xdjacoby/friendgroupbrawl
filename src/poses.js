@@ -5,8 +5,14 @@
 // Upper limbs: rArm/lArm (shoulder -> elbow), rFore/lFore (elbow -> hand; 'mouth' aims the hand at the mouth).
 // Lower limbs: rThigh/lThigh (hip -> knee), rShin/lShin (knee -> ankle).
 // Extras: lean (forward bend, radians), look (head tilt up, radians), crouch (0-1),
-// spin (yaw, radians), rProp/lProp ('club' = along the forearm, 'upright' = held vertical),
+// spin (yaw, radians), pitch (whole-body flip around the waist, radians, + = backflip),
+// rProp/lProp ('club' = along the forearm, 'upright' = held vertical),
+// rHeld/lHeld (show this prop in that hand instead of the usual one; null = empty hand),
 // glow (0-1, lights up a held prop like the dab pen).
+//
+// Attacks use keyframes() so the swing lands on the same frames as the hitbox.
+// Handy reference points (body space, model scaled to 1.8m): shoulders ~1.45m up,
+// hips ~0.92m, an arm reaches ~0.62m and a leg ~0.95m.
 
 const GUARD = {
   rArm: [0.25, -1, 0.3], rFore: [1, 0.7, 0.1],
@@ -55,6 +61,59 @@ const STATES = {
   },
 };
 
+// ---- Keyframes ----
+
+const slerpDir = (a, b, t) => {
+  const la = Math.hypot(a[0], a[1], a[2]) || 1;
+  const lb = Math.hypot(b[0], b[1], b[2]) || 1;
+  const u = [a[0] / la, a[1] / la, a[2] / la];
+  const v = [b[0] / lb, b[1] / lb, b[2] / lb];
+  const dot = Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
+  const omega = Math.acos(dot);
+  if (omega < 1e-3 || omega > Math.PI - 1e-3) return u.map((x, i) => x + (v[i] - x) * t);
+  const s = Math.sin(omega);
+  const wa = Math.sin((1 - t) * omega) / s;
+  const wb = Math.sin(t * omega) / s;
+  return u.map((x, i) => x * wa + v[i] * wb);
+};
+
+function blend(a, b, t) {
+  const out = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const x = a[k];
+    const y = b[k];
+    if (x === undefined) out[k] = y;
+    else if (y === undefined) out[k] = x;
+    else if (Array.isArray(x) && Array.isArray(y)) out[k] = slerpDir(x, y, t);
+    else if (typeof x === 'number' && typeof y === 'number') out[k] = x + (y - x) * t;
+    else out[k] = t < 0.5 ? x : y;
+  }
+  return out;
+}
+
+// keyframes([[frame, pose], ...]) -> pose(frame). Each key keeps whatever the key
+// before it set, and limbs swing smoothly (at a constant speed) from key to key.
+// Keep keys less than ~150 degrees apart so a swing goes the way you expect.
+export function keyframes(keys) {
+  const full = [];
+  let acc = {};
+  for (const [frame, pose] of keys) {
+    acc = { ...acc, ...pose };
+    full.push([frame, acc]);
+  }
+  return (frame) => {
+    if (frame <= full[0][0]) return full[0][1];
+    for (let i = 1; i < full.length; i++) {
+      const [f1, b] = full[i];
+      if (frame <= f1) {
+        const [f0, a] = full[i - 1];
+        return blend(a, b, (frame - f0) / Math.max(1, f1 - f0));
+      }
+    }
+    return full[full.length - 1][1];
+  };
+}
+
 // Direction at `angle` radians from straight down, swinging toward +x.
 const swingDir = (angle, z = 0) => [Math.sin(angle), -Math.cos(angle), z];
 
@@ -87,8 +146,8 @@ function attackPose(def, frame) {
     };
   }
 
-  const tx = hb?.x ?? 0.9;
-  const ty = hb?.y ?? 1.3;
+  const tx = hb?.x ?? hb?.path?.[0][1] ?? 0.9;
+  const ty = hb?.y ?? hb?.path?.[0][2] ?? 1.3;
   const isArm = def.limb === 'arm';
   const jointY = isArm ? 1.45 : 0.92;
   const aim = Math.atan2(tx, -(ty - jointY));
@@ -120,15 +179,18 @@ export function stateOf(f) {
 
 export function computePose(f, time) {
   const state = stateOf(f);
-  const overrides = f.character.poses?.[state];
+  const poses = f.character.poses;
+  const overrides = poses?.[state];
+  // `poses.base` applies in every state (e.g. how a prop is held), under everything else.
+  const base = { ...GUARD, ...poses?.base };
   let pose;
   if (state === 'attack') {
     const { def, frame } = f.move;
-    pose = { ...GUARD, ...f.character.poses?.idle, ...(def.pose ? def.pose(frame, f) : attackPose(def, frame)) };
+    pose = { ...base, ...poses?.idle, ...(def.pose ? def.pose(frame, f) : attackPose(def, frame)) };
   } else if (state === 'run') {
-    pose = { ...GUARD, ...runPose(f, time), ...overrides };
+    pose = { ...base, ...runPose(f, time), ...overrides };
   } else {
-    pose = { ...GUARD, ...STATES[state], ...overrides };
+    pose = { ...base, ...STATES[state], ...overrides };
   }
   if (state === 'idle') pose.lean += Math.sin(time * 3) * 0.03; // breathing
   if (state === 'helpless') {

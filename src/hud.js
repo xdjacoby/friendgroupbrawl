@@ -13,10 +13,16 @@ export class Hud {
         <div class="hud-tag">P${f.slot + 1}</div>
         <div class="hud-percent">0%</div>
         <div class="hud-name"></div>
-        <div class="hud-stocks"></div>`;
+        <div class="hud-stocks"></div>
+        <div class="hud-extra"></div>`;
       card.querySelector('.hud-name').textContent = f.character.name;
       this.el.appendChild(card);
-      return { f, card, percent: card.querySelector('.hud-percent'), stocks: card.querySelector('.hud-stocks'), last: {} };
+      return {
+        f, card, last: {},
+        percent: card.querySelector('.hud-percent'),
+        stocks: card.querySelector('.hud-stocks'),
+        extra: card.querySelector('.hud-extra'),
+      };
     });
     document.body.appendChild(this.el);
   }
@@ -40,7 +46,10 @@ export class Hud {
         c.stocks.innerHTML = '<span></span>'.repeat(Math.max(0, f.stocks));
         c.card.classList.toggle('out', f.stocks <= 0);
       }
-      c.last = { pct, dead: f.dead, stocks: f.stocks };
+      // Character-specific status, e.g. Jacoby's microscope and snack stacks.
+      const extra = f.character.hud?.(f) ?? '';
+      if (c.last.extra !== extra) c.extra.textContent = extra;
+      c.last = { pct, dead: f.dead, stocks: f.stocks, extra };
     }
   }
 

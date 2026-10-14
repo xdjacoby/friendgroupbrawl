@@ -1,4 +1,5 @@
 import { DRAVEN } from './characters/draven.js';
+import { JACOBY } from './characters/jacoby.js';
 
 // The playable cast. Each friend gets one entry here. Friends with their own
 // moveset live in src/characters/ (see draven.js for the full format).
@@ -17,19 +18,13 @@ import { DRAVEN } from './characters/draven.js';
 //   power       multiplier on all damage dealt
 //   scale       visual + hurtbox size multiplier
 //
-// Optional: moves (replace any move from moves.js), poses (override idle etc.),
-// props ({ right: 'bong', left: 'dabPen' }, see props.js).
+// Optional: moves (replace any move from moves.js), poses (override idle etc.;
+// `base` applies everywhere), props ({ right: 'bong', left: 'dabPen' }, see
+// props.js), hud(f) (a status line under the name on the HUD).
 
 export const ROSTER = [
   DRAVEN,
-  {
-    id: 'speedster',
-    name: 'Friend 2',
-    tagline: 'Fast and fragile',
-    color: 0x2f9be3,
-    model: null,
-    stats: { weight: 82, runSpeed: 11, airSpeed: 7.5, jump: 16, gravity: 48, maxFall: 17, power: 0.85, scale: 0.92 },
-  },
+  JACOBY,
   {
     id: 'tank',
     name: 'Friend 3',

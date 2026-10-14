@@ -103,6 +103,7 @@ function startMatch(setup = buildSetup()) {
     players: setup.players.map((p) => ({ ...p, controller: createController(p.control) })),
     onEnd: showResults,
   });
+  game.showHitboxes = $('show-hitboxes').checked;
   resize();
   paused = false;
   show(null);
@@ -166,6 +167,7 @@ function frame(now) {
     const padPause = [...(navigator.getGamepads?.() ?? [])].some((p) => p?.buttons[9]?.pressed);
     if (consumeKey('Escape') || (padPause && !frame.padPauseHeld)) setPaused(!paused);
     frame.padPauseHeld = padPause;
+    if (consumeKey('Backquote')) game.showHitboxes = $('show-hitboxes').checked = !game.showHitboxes;
 
     if (!paused && !game.ended) {
       acc += dt;
