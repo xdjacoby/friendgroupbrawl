@@ -20,7 +20,8 @@ import { JACOBY } from './characters/jacoby.js';
 //
 // Optional: moves (replace any move from moves.js), poses (override idle etc.;
 // `base` applies everywhere), props ({ right: 'bong', left: 'dabPen' }, see
-// props.js), hud(f) (a status line under the name on the HUD).
+// props.js), hud(f) (a status line under the name on the HUD), cpu(f, info)
+// (extra CPU habits, see jacoby.js).
 
 export const ROSTER = [
   DRAVEN,

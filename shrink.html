@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Model Shrinker</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗜️</text></svg>" />
+    <style>
+      :root { --bg: #0f1420; --panel: #182033; --text: #f3f5fa; --muted: #9aa5bd; --accent: #ffcf3f; --ok: #5be37a; --bad: #ff5a4f; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; background: radial-gradient(ellipse at top, #24324f, var(--bg) 70%); color: var(--text); font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; padding: 24px 16px; }
+      main { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+      h1 { margin: 0; font-size: 28px; }
+      h1 span { color: var(--accent); }
+      p, li { color: var(--muted); line-height: 1.5; }
+      ol { margin: 0; padding-left: 20px; }
+      #drop { border: 2px dashed #4a5878; border-radius: 12px; padding: 32px 16px; text-align: center; background: var(--panel); cursor: pointer; }
+      #drop.over { border-color: var(--accent); }
+      label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      input[type=text], select { background: #0c1120; color: var(--text); border: 1px solid #4a5878; border-radius: 6px; padding: 6px 8px; font-size: 16px; }
+      button { background: var(--accent); color: #1d1630; border: 0; border-radius: 8px; padding: 10px 18px; font-size: 16px; font-weight: 700; cursor: pointer; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      #log { background: #0c1120; border-radius: 8px; padding: 12px; white-space: pre-wrap; font: 14px/1.5 ui-monospace, Consolas, monospace; min-height: 3em; }
+      .ok { color: var(--ok); }
+      .bad { color: var(--bad); }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Model <span>Shrinker</span></h1>
+      <p>GitHub's website only takes files up to 25 MB. Most of a Meshy model's size is its texture pictures, so this page re-saves them smaller (JPEG, at most the size you pick). The shape, the skeleton and the animations stay exactly the same. Nothing gets uploaded anywhere: it all happens in this browser tab.</p>
+      <ol>
+        <li>Drop the <b>.glb</b> file from Meshy in the box below (or click it to pick the file).</li>
+        <li>Type the friend's name. That becomes the file name (e.g. <code>sam</code> → <code>sam.glb</code>).</li>
+        <li>Click <b>Shrink</b>. The small file downloads to your Downloads folder.</li>
+        <li>Upload that file to <code>public/models/</code> on GitHub, like before.</li>
+      </ol>
+      <div id="drop">Drop a .glb file here, or click to choose one<input id="file" type="file" accept=".glb" hidden /></div>
+      <label>File name <input id="name" type="text" placeholder="friend name" /> .glb</label>
+      <label>Texture size
+        <select id="size">
+          <option value="2048" selected>2048 (sharp, usually 5-10 MB)</option>
+          <option value="1024">1024 (smaller, still looks fine in game)</option>
+          <option value="512">512 (tiny)</option>
+        </select>
+      </label>
+      <div><button id="go" disabled>Shrink</button></div>
+      <div id="log">No file yet.</div>
+      <p><a href="/">← Back to the game</a></p>
+    </main>
+    <script type="module">
+      import { shrinkGlb, describeGlb } from '/src/shrink.js';
+
+      const $ = (id) => document.getElementById(id);
+      const mb = (n) => `${(n / 1048576).toFixed(1)} MB`;
+      let file = null;
+
+      function pick(f) {
+        if (!f) return;
+        file = f;
+        $('name').value ||= f.name.replace(/\.glb$/i, '').replace(/^Meshy_AI_/i, '').split(/[_\s]/)[0].toLowerCase();
+        $('go').disabled = false;
+        f.arrayBuffer().then((buf) => {
+          try {
+            const info = describeGlb(buf);
+            $('log').innerHTML = `${f.name}: ${mb(f.size)}\n${info}`;
+          } catch (err) {
+            $('log').innerHTML = `<span class="bad">${err.message}</span>`;
+            $('go').disabled = true;
+          }
+        });
+      }
+
+      const drop = $('drop');
+      drop.onclick = () => $('file').click();
+      $('file').onchange = (e) => pick(e.target.files[0]);
+      drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+      drop.ondragleave = () => drop.classList.remove('over');
+      drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); pick(e.dataTransfer.files[0]); };
+
+      $('go').onclick = async () => {
+        const name = $('name').value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '') || 'friend';
+        $('go').disabled = true;
+        $('log').textContent = 'Shrinking...';
+        try {
+          const out = await shrinkGlb(await file.arrayBuffer(), Number($('size').value), (msg) => { $('log').textContent += `\n${msg}`; });
+          const blob = new Blob([out], { type: 'model/gltf-binary' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `${name}.glb`;
+          a.click();
+          const fits = blob.size <= 25 * 1048576;
+          $('log').innerHTML += `\n\n${mb(file.size)} → <b>${mb(blob.size)}</b>  ` +
+            (fits ? `<span class="ok">Small enough for GitHub. Saved as ${name}.glb in your Downloads.</span>`
+              : '<span class="bad">Still over 25 MB: pick a smaller texture size and try again.</span>');
+        } catch (err) {
+          $('log').innerHTML += `\n<span class="bad">Couldn't shrink it: ${err.message}</span>`;
+        }
+        $('go').disabled = false;
+      };
+    </script>
+  </body>
+</html>

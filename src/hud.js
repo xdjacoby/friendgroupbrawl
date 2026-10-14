@@ -46,7 +46,7 @@ export class Hud {
         c.stocks.innerHTML = '<span></span>'.repeat(Math.max(0, f.stocks));
         c.card.classList.toggle('out', f.stocks <= 0);
       }
-      // Character-specific status, e.g. Jacoby's microscope and snack stacks.
+      // Character-specific status, e.g. Jacoby's magnifying glass and snacks.
       const extra = f.character.hud?.(f) ?? '';
       if (c.last.extra !== extra) c.extra.textContent = extra;
       c.last = { pct, dead: f.dead, stocks: f.stocks, extra };
