@@ -2,9 +2,15 @@ import * as THREE from 'three';
 
 // Stage layout in meters. Gameplay happens on the x/y plane at z = 0.
 export function createStage() {
+  const main = { x1: -7, x2: 7, y: 0, top: 0, bottom: -3, passThrough: false };
   return {
     name: 'Battleground',
-    main: { x1: -7, x2: 7, y: 0, top: 0, bottom: -3, passThrough: false },
+    main,
+    // Grabbable corners of the main platform. dir = which side the hanging fighter is on.
+    ledges: [
+      { x: main.x1, y: main.top, dir: -1, platform: main, holder: null },
+      { x: main.x2, y: main.top, dir: 1, platform: main, holder: null },
+    ],
     platforms: [
       { x1: -4.4, x2: -1.6, y: 2.7, passThrough: true },
       { x1: 1.6, x2: 4.4, y: 2.7, passThrough: true },

@@ -69,7 +69,7 @@ export class Game {
         const cy = a.y + hb.y * s;
         const r = hb.r * s;
         for (const v of this.fighters) {
-          if (v === a || v.dead || v.invuln > 0 || a.move?.hit.has(v)) continue;
+          if (v === a || v.dead || v.intangible || a.move?.hit.has(v)) continue;
           if (!circleHitsBox(cx, cy, r, v)) continue;
           a.move.hit.add(v);
           v.takeHit(a, hb, a.facing, this);
@@ -81,19 +81,30 @@ export class Game {
 
   spawnProjectile(owner, def) {
     const s = owner.stats.scale;
-    const mesh = new THREE.Mesh(
-      this.projectileGeo,
-      new THREE.MeshBasicMaterial({ color: owner.character.color }),
-    );
-    mesh.scale.setScalar(def.r);
+    if (def.unique) {
+      // Only one of these per owner: the old one fades out quickly.
+      for (const p of this.projectiles) {
+        if (p.owner === owner && p.hb.unique === def.unique) p.life = Math.min(p.life, 15);
+      }
+    }
+    let mesh;
+    if (def.look === 'cloud') {
+      mesh = this.effects.makeCloud(def.color ?? 0xf0f0f5, def.opacity, def.squash);
+    } else {
+      mesh = new THREE.Mesh(this.projectileGeo, new THREE.MeshBasicMaterial({ color: owner.character.color }));
+    }
     this.scene.add(mesh);
     this.projectiles.push({
       owner,
       stats: owner.stats,
-      x: owner.x + 0.7 * s * owner.facing,
-      y: owner.y + 1.2 * s,
+      x: owner.x + (def.x ?? 0.7) * s * owner.facing,
+      y: owner.y + (def.y ?? 1.2) * s,
       vx: def.speed * owner.facing,
+      r: def.r * s,
+      maxR: (def.maxR ?? def.r) * s,
       life: def.life,
+      age: 0,
+      hits: new Map(), // victim -> age of last hit, for multi-hit clouds
       hb: def,
       mesh,
     });
@@ -102,15 +113,26 @@ export class Game {
   stepProjectiles() {
     const m = this.stage.main;
     this.projectiles = this.projectiles.filter((p) => {
-      p.x += p.vx / 60;
+      const def = p.hb;
+      p.age++;
       p.life--;
-      let alive = p.life > 0 && !(p.x > m.x1 && p.x < m.x2 && p.y < m.top && p.y > m.bottom);
+      if (def.drag) p.vx *= 1 - def.drag;
+      if (def.grow) p.r = Math.min(p.maxR, p.r + def.grow / 60);
+      p.x += p.vx / 60;
+      let alive = p.life > 0;
+      if (!def.pierce && p.x > m.x1 && p.x < m.x2 && p.y < m.top && p.y > m.bottom) alive = false;
       if (alive) {
         for (const v of this.fighters) {
-          if (v === p.owner || v.dead || v.invuln > 0) continue;
-          if (circleHitsBox(p.x, p.y, p.hb.r, v)) {
-            v.takeHit(p, p.hb, Math.sign(p.vx), this);
-            this.effects.spark(p.x, p.y, p.owner.character.color, 0.4);
+          if (v === p.owner || v.dead || v.intangible) continue;
+          if (!circleHitsBox(p.x, p.y, p.r, v)) continue;
+          if (def.pierce) {
+            const last = p.hits.get(v);
+            if (last !== undefined && p.age - last < (def.hitEvery ?? 30)) continue;
+            p.hits.set(v, p.age);
+          }
+          v.takeHit(p, def, Math.sign(p.vx) || Math.sign(v.x - p.x) || 1, this);
+          if (!def.noKnockback) this.effects.spark(v.x, v.y + v.h * 0.6, p.owner.character.color, 0.4);
+          if (!def.pierce) {
             alive = false;
             break;
           }
@@ -118,7 +140,7 @@ export class Game {
       }
       if (!alive) {
         p.mesh.removeFromParent();
-        p.mesh.material.dispose();
+        p.mesh.traverse((o) => o.material?.dispose());
       }
       return alive;
     });
@@ -128,7 +150,7 @@ export class Game {
     const s = f.stats.scale;
     this.effects.shockwave(f.x, f.y, SHOCKWAVE.r * s);
     for (const v of this.fighters) {
-      if (v === f || v.dead || v.invuln > 0) continue;
+      if (v === f || v.dead || v.intangible) continue;
       if (circleHitsBox(f.x, f.y + 0.2, SHOCKWAVE.r * s, v)) {
         v.takeHit(f, SHOCKWAVE, Math.sign(v.x - f.x) || f.facing, this);
       }
@@ -189,6 +211,24 @@ export class Game {
     f.land(platform, this);
   }
 
+  // Snap to a free ledge when falling (or up-specialing / air dodging) next to it.
+  tryLedgeGrab(f) {
+    if (f.ledge || f.grounded || f.dead || f.hitstun > 0 || f.ledgeCooldown > 0) return;
+    const m = f.move;
+    if (m && m.name !== 'uspecial' && m.name !== 'airdodge') return;
+    if (f.vy + f.kby > 0 && m?.name !== 'uspecial') return; // still rising past it
+    const s = f.stats.scale;
+    for (const lg of this.stage.ledges) {
+      if (lg.holder && lg.holder !== f) continue;
+      const outside = (f.x - lg.x) * lg.dir; // distance out past the stage edge
+      if (outside < -0.3 || outside > 1.1) continue;
+      const handY = f.y + 1.95 * s;
+      if (handY < lg.y - 0.6 || handY > lg.y + 0.8) continue;
+      f.grabLedge(lg);
+      return;
+    }
+  }
+
   checkBlastZone(f) {
     if (this.endTimer >= 0) return; // match is decided; nobody else can lose a stock
     const b = this.stage.blast;
@@ -222,7 +262,16 @@ export class Game {
     this.time += dt;
     this.stageView.update(dt);
     for (const v of this.views) v.update(dt, this.time);
-    for (const p of this.projectiles) p.mesh.position.set(p.x, p.y, 0);
+    for (const p of this.projectiles) {
+      p.mesh.position.set(p.x, p.y, 0);
+      if (p.hb.look === 'cloud') {
+        // Fade in over the first few frames, out over the last 30.
+        const alpha = Math.min(1, p.age / 6, p.life / 30);
+        this.effects.updateCloud(p.mesh, p.r, alpha, this.time);
+      } else {
+        p.mesh.scale.setScalar(p.r);
+      }
+    }
     this.effects.update(dt);
     this.updateCamera(dt);
     this.hud.update();

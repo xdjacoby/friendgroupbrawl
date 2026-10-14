@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { computePose } from './poses.js';
+import { Puppet } from './puppet.js';
+import { createProp } from './props.js';
 
 const loader = new GLTFLoader();
 const modelCache = new Map();
@@ -16,11 +19,29 @@ function loadModel(url) {
 }
 
 const lerp = (a, b, t) => a + (b - a) * t;
+const NEG_Y = new THREE.Vector3(0, -1, 0);
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const _hand = new THREE.Vector3();
+const _elbow = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _bodyQuat = new THREE.Quaternion();
+const _invBody = new THREE.Quaternion();
+const _spin = new THREE.Quaternion();
 
 function capsule(radius, length, material) {
   const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 4, 10), material);
   mesh.castShadow = true;
   return mesh;
+}
+
+// Placeholder limbs only bend at one joint, so aim them at the average of the two segments.
+const MOUTH_ANGLE = 2.6; // arm raised up and forward so the hand reaches the face
+function limbAngle(upper, lower) {
+  if (lower === 'mouth') return MOUTH_ANGLE;
+  const u = new THREE.Vector2(upper[0], upper[1]).normalize();
+  const l = new THREE.Vector2(lower[0], lower[1]).normalize();
+  const d = u.add(l);
+  return Math.atan2(d.x, -d.y);
 }
 
 // Visual for one fighter. Reads simulation state, never writes it.
@@ -40,6 +61,7 @@ export class FighterView {
     this.buildPlaceholder(fighter.character.color);
     this.buildShield(slotColor);
     this.buildMarker(slotColor, `P${fighter.slot + 1}`);
+    this.buildProps(fighter.character.props);
     this.root.scale.setScalar(fighter.stats.scale);
 
     if (fighter.character.model) this.tryLoadModel(fighter.character.model);
@@ -50,6 +72,7 @@ export class FighterView {
     const mat = new THREE.MeshStandardMaterial({ color: base, roughness: 0.55 });
     const skin = new THREE.MeshStandardMaterial({ color: base.clone().lerp(new THREE.Color(0xffe0c4), 0.65), roughness: 0.6 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x1b1b1f });
+    this.placeholderMaterials = [mat, skin];
     this.materials.push(mat, skin);
 
     const rig = new THREE.Group();
@@ -83,10 +106,22 @@ export class FighterView {
       this.hips.add(pivot);
       return pivot;
     };
-    this.armNear = limb(0, 0.6, 0.36, 0.09, 0.45, skin);
-    this.armFar = limb(0, 0.6, -0.36, 0.09, 0.45, skin);
-    this.legNear = limb(0, 0.02, 0.15, 0.11, 0.72, mat);
-    this.legFar = limb(0, 0.02, -0.15, 0.11, 0.72, mat);
+    // +z is the fighter's right side.
+    this.armR = limb(0, 0.6, 0.36, 0.09, 0.45, skin);
+    this.armL = limb(0, 0.6, -0.36, 0.09, 0.45, skin);
+    this.legR = limb(0, 0.02, 0.15, 0.11, 0.72, mat);
+    this.legL = limb(0, 0.02, -0.15, 0.11, 0.72, mat);
+
+    const socket = (arm) => {
+      const s = new THREE.Object3D();
+      s.position.y = -0.62;
+      arm.add(s);
+      return s;
+    };
+    this.sockets = {
+      right: { hand: socket(this.armR), elbow: this.armR },
+      left: { hand: socket(this.armL), elbow: this.armL },
+    };
   }
 
   buildShield(color) {
@@ -120,6 +155,20 @@ export class FighterView {
     this.root.add(sprite);
   }
 
+  // character.props = { right: 'bong', left: 'dabPen' }
+  buildProps(props = {}) {
+    this.props = [];
+    for (const side of ['right', 'left']) {
+      if (!props[side]) continue;
+      const prop = createProp(props[side]);
+      if (!prop) continue;
+      const holder = new THREE.Group();
+      holder.add(prop.object);
+      this.body.add(holder);
+      this.props.push({ side, prop, holder });
+    }
+  }
+
   async tryLoadModel(url) {
     const gltf = await loadModel(url);
     if (!gltf) return;
@@ -133,6 +182,24 @@ export class FighterView {
     box.setFromObject(model);
     const center = box.getCenter(new THREE.Vector3());
     model.position.set(-center.x, -box.min.y, -center.z);
+    // Rigged models: center on the hips rather than the bounding box, so the
+    // body lines up with the hurtbox even if the arms or hood stick out.
+    let hips = null;
+    model.traverse((o) => { if (!hips && o.isBone && /hips$/i.test(o.name)) hips = o; });
+    if (hips) {
+      model.updateMatrixWorld(true);
+      const p = hips.getWorldPosition(new THREE.Vector3());
+      model.position.x -= p.x;
+      model.position.z -= p.z;
+    }
+
+    // Files exported without materials/textures get a clay look tinted with the character color.
+    const untextured = !gltf.parser.json.materials?.length;
+    const clay = untextured && new THREE.MeshStandardMaterial({
+      color: new THREE.Color(0xd8c8b8).lerp(new THREE.Color(this.f.character.color), 0.3),
+      roughness: 0.75,
+      metalness: 0,
+    });
 
     const holder = new THREE.Group();
     holder.rotation.y = Math.PI / 2; // glTF faces +z; gameplay "forward" is +x
@@ -140,15 +207,27 @@ export class FighterView {
     model.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
+        o.frustumCulled = false; // skinned bounds don't follow procedural poses
+        if (clay) o.material = clay;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const mat of mats) if (mat.emissive) this.materials.push(mat);
+        for (const mat of mats) if (mat.emissive && !this.materials.includes(mat)) this.materials.push(mat);
       }
     });
 
     this.body.remove(this.rig);
+    this.materials = this.materials.filter((m) => !this.placeholderMaterials.includes(m));
     this.rig = null;
     this.model = holder;
     this.body.add(holder);
+
+    this.puppet = Puppet.from(model);
+    if (this.puppet) {
+      const b = this.puppet.b;
+      this.sockets = {
+        right: { hand: b.rHand, elbow: b.rFore },
+        left: { hand: b.lHand, elbow: b.lFore },
+      };
+    }
 
     if (gltf.animations.length) {
       this.mixer = new THREE.AnimationMixer(model);
@@ -167,11 +246,17 @@ export class FighterView {
     return null;
   }
 
-  playClip(action) {
+  playClip(action, fade = 0.12) {
     if (!action || action === this.current) return;
-    action.reset().fadeIn(0.12).play();
-    this.current?.fadeOut(0.12);
+    action.reset().fadeIn(fade).play();
+    this.current?.fadeOut(fade);
     this.current = action;
+  }
+
+  stopClips() {
+    if (!this.current) return;
+    this.mixer.stopAllAction();
+    this.current = null;
   }
 
   update(dt, time) {
@@ -187,16 +272,58 @@ export class FighterView {
     this.shield.visible = f.shielding;
     if (f.shielding) this.shield.scale.setScalar(0.45 + 0.65 * (f.shieldHP / 50));
 
-    // Hit flash / respawn blink
+    // Hit flash / respawn + ledge invincibility blink / dodge tint / slowed by a cloud
     const flash = f.hitFlash > 0 ? 0.9 : f.invuln > 0 && Math.floor(time * 10) % 2 ? 0.45 : f.helpless ? 0.15 : 0;
-    for (const m of this.materials) m.emissive?.setScalar(flash);
+    const dodging = flash === 0 && f.intangible && f.invuln === 0;
+    for (const mat of this.materials) {
+      if (!mat.emissive) continue;
+      if (dodging) mat.emissive.setRGB(0.12, 0.22, 0.4);
+      else if (flash === 0 && f.slowTimer > 0) mat.emissive.setRGB(0.05, 0.18, 0.05);
+      else mat.emissive.setScalar(flash);
+    }
 
-    // Tumble when launched hard
-    const tumbling = f.hitstun > 12 && !f.grounded;
-    this.tumble.rotation.z = tumbling ? this.tumble.rotation.z + dt * 12 * f.facing : lerp(this.tumble.rotation.z % (Math.PI * 2), 0, Math.min(1, dt * 15));
+    const m = f.move;
+    if (m?.name === 'roll') {
+      // One full forward roll in the direction of travel.
+      const t = Math.max(0, Math.min(1, (m.frame - 2) / 16));
+      this.tumble.rotation.z = -t * Math.PI * 2 * m.dir;
+    } else {
+      // Tumble when launched hard
+      const tumbling = f.hitstun > 12 && !f.grounded;
+      this.tumble.rotation.z = tumbling ? this.tumble.rotation.z + dt * 12 * f.facing : lerp(this.tumble.rotation.z % (Math.PI * 2), 0, Math.min(1, dt * 15));
+    }
+    // Spot dodge: sidestep back into the screen.
+    const sidestep = m?.name === 'spotdodge' && m.frame <= 16 ? -0.8 : 0;
+    this.body.position.z = lerp(this.body.position.z, sidestep, Math.min(1, dt * 25));
+    this.root.updateMatrixWorld(true);
 
-    if (this.rig) this.animatePlaceholder(dt, time);
+    const pose = computePose(f, time);
+    const k = Math.min(1, dt * 22);
+    if (this.rig) this.animatePlaceholder(pose, k);
+    else if (this.puppet) this.animatePuppet(pose, dt, k);
     else this.animateModel(dt);
+    this.updateProps(pose);
+  }
+
+  animatePuppet(pose, dt, k) {
+    const f = this.f;
+    this.model.position.y = lerp(this.model.position.y, -0.2 * pose.crouch, k);
+    this.model.rotation.y = Math.PI / 2 + pose.spin;
+
+    // Use the file's own run/walk cycle when it has one; everything else is procedural.
+    const speed = Math.abs(f.vx);
+    const clip = pose.state === 'run' && (speed > 4.5 ? this.clip('run') : this.clip('walk', 'run'));
+    if (clip) {
+      this.playClip(clip, 0.08);
+      clip.timeScale = Math.max(0.7, Math.min(1.4, speed / 8));
+      this.mixer.update(dt);
+      this.model.updateMatrixWorld(true);
+      return;
+    }
+    this.stopClips();
+    this.body.getWorldQuaternion(_bodyQuat);
+    _bodyQuat.multiply(_spin.setFromAxisAngle(Y_AXIS, pose.spin));
+    this.puppet.apply(pose, _bodyQuat, k);
   }
 
   animateModel(dt) {
@@ -212,75 +339,41 @@ export class FighterView {
       this.mixer.update(dt);
       return;
     }
-    // No animations in the file: squash and lean for some life.
+    // No skeleton or animations in the file: squash and lean for some life.
     const squash = f.jumpsquat > 0 || f.landingLag > 0 ? 0.85 : 1;
     const lean = f.move ? 0.25 : f.grounded ? Math.min(Math.abs(f.vx) / 40, 0.2) : -0.1;
     this.model.scale.y = lerp(this.model.scale.y, squash, Math.min(1, dt * 20));
     this.model.rotation.z = lerp(this.model.rotation.z, -lean, Math.min(1, dt * 12));
   }
 
-  animatePlaceholder(dt, time) {
-    const f = this.f;
-    const k = Math.min(1, dt * 18);
-    const pose = { armNear: 0.15, armFar: -0.15, legNear: 0, legFar: 0, hipsY: 0.9, spin: 0 };
-
-    if (f.hitstun > 0) {
-      Object.assign(pose, { armNear: 2.4, armFar: 2.0, legNear: 0.6, legFar: -0.4 });
-    } else if (f.move) {
-      this.attackPose(pose);
-    } else if (f.shielding || f.jumpsquat > 0 || f.landingLag > 0) {
-      Object.assign(pose, { hipsY: 0.72, legNear: 0.5, legFar: -0.3, armNear: 0.6, armFar: 0.5 });
-    } else if (!f.grounded) {
-      const rising = f.vy > 0;
-      Object.assign(pose, {
-        armNear: f.helpless ? 2.8 : rising ? 2.2 : 1.2,
-        armFar: f.helpless ? 2.6 : rising ? 1.8 : 1.0,
-        legNear: 0.7, legFar: -0.2,
-      });
-    } else if (Math.abs(f.vx) > 0.5) {
-      const speed = Math.abs(f.vx);
-      const swing = Math.sin(time * speed * 2.2) * Math.min(1.1, speed / 7);
-      Object.assign(pose, { legNear: swing, legFar: -swing, armNear: -swing * 0.8, armFar: swing * 0.8 });
-    } else {
-      pose.hipsY = 0.9 + Math.sin(time * 3) * 0.015;
-    }
-
-    this.armNear.rotation.z = lerp(this.armNear.rotation.z, pose.armNear, k);
-    this.armFar.rotation.z = lerp(this.armFar.rotation.z, pose.armFar, k);
-    this.legNear.rotation.z = lerp(this.legNear.rotation.z, pose.legNear, k);
-    this.legFar.rotation.z = lerp(this.legFar.rotation.z, pose.legFar, k);
-    this.hips.position.y = lerp(this.hips.position.y, pose.hipsY, k);
+  animatePlaceholder(pose, k) {
+    const set = (obj, value) => { obj.rotation.z = lerp(obj.rotation.z, value, k); };
+    set(this.armR, limbAngle(pose.rArm, pose.rFore));
+    set(this.armL, limbAngle(pose.lArm, pose.lFore));
+    set(this.legR, limbAngle(pose.rThigh, pose.rShin));
+    set(this.legL, limbAngle(pose.lThigh, pose.lShin));
+    this.hips.rotation.z = lerp(this.hips.rotation.z, -pose.lean * 0.6, k);
+    this.hips.position.y = lerp(this.hips.position.y, 0.9 - 0.2 * pose.crouch, k);
     this.rig.rotation.y = pose.spin;
+    this.rig.updateMatrixWorld(true);
   }
 
-  attackPose(pose) {
-    const { def, frame } = this.f.move;
-    const hb = def.hitboxes[0];
-    const start = hb?.start ?? def.projectileFrame ?? 8;
-    const end = hb?.end ?? start + 4;
-
-    if (def.limb === 'spin') {
-      const t = Math.max(0, frame - start) / Math.max(1, end - start);
-      pose.spin = frame >= start && frame <= end ? t * Math.PI * 2 : 0;
-      Object.assign(pose, { armNear: Math.PI / 2, armFar: Math.PI / 2, legNear: 0.9, legFar: -0.9 });
-      return;
-    }
-
-    // Point the swinging limb from its joint toward the hitbox.
-    const tx = hb?.x ?? 0.9;
-    const ty = hb?.y ?? 1.3;
-    const isArm = def.limb === 'arm';
-    const jointY = isArm ? 1.5 : 0.92;
-    const aim = Math.atan2(tx, -(ty - jointY));
-    const windup = aim - Math.sign(tx || 1) * 1.2;
-    const angle = frame < start ? lerp(0, windup, frame / start) : frame <= end ? aim : aim * 0.6;
-
-    if (isArm) pose.armNear = angle;
-    else {
-      pose.legNear = angle;
-      pose.legFar = -0.3;
-      pose.armNear = 1.0;
-      pose.armFar = -0.6;
+  // Keep held props in the hands: 'club' lines the prop up with the forearm,
+  // 'upright' holds it vertical (e.g. lifting the bong to take a rip).
+  updateProps(pose) {
+    if (!this.props.length) return;
+    this.body.getWorldQuaternion(_invBody).invert();
+    for (const { side, prop, holder } of this.props) {
+      const { hand, elbow } = this.sockets[side];
+      hand.getWorldPosition(_hand);
+      elbow.getWorldPosition(_elbow);
+      _dir.subVectors(_hand, _elbow).normalize();
+      _hand.addScaledVector(_dir, this.puppet ? 0.07 : 0); // wrist -> palm
+      holder.position.copy(this.body.worldToLocal(_hand));
+      const mode = side === 'right' ? pose.rProp : pose.lProp;
+      if (mode === 'upright') holder.quaternion.identity();
+      else holder.quaternion.setFromUnitVectors(NEG_Y, _dir.applyQuaternion(_invBody));
+      prop.setGlow(pose.glow ?? 0);
     }
   }
 

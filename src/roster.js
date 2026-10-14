@@ -1,4 +1,7 @@
-// The playable cast. Each friend gets one entry here.
+import { DRAVEN } from './characters/draven.js';
+
+// The playable cast. Each friend gets one entry here. Friends with their own
+// moveset live in src/characters/ (see draven.js for the full format).
 //
 // To swap a placeholder for a real scanned model, drop a .glb file in
 // public/models/ and set `model: 'models/<file>.glb'`. See README.md for the
@@ -13,16 +16,12 @@
 //   maxFall     terminal fall speed (m/s)
 //   power       multiplier on all damage dealt
 //   scale       visual + hurtbox size multiplier
+//
+// Optional: moves (replace any move from moves.js), poses (override idle etc.),
+// props ({ right: 'bong', left: 'dabPen' }, see props.js).
 
 export const ROSTER = [
-  {
-    id: 'allrounder',
-    name: 'Friend 1',
-    tagline: 'The all-rounder',
-    color: 0xe2483d,
-    model: null,
-    stats: { weight: 100, runSpeed: 8, airSpeed: 6, jump: 15, gravity: 42, maxFall: 15, power: 1.0, scale: 1.0 },
-  },
+  DRAVEN,
   {
     id: 'speedster',
     name: 'Friend 2',

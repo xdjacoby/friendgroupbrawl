@@ -27,7 +27,7 @@ Knock opponents off the stage. Hits raise their damage %, and the higher it is, 
 | Jump (double jump in air) | W or Space | ↑ | A or Y |
 | Attack | F | , | X |
 | Special | G | . | B |
-| Shield | H | / | Bumpers / triggers |
+| Shield / dodge | H | / | Bumpers / triggers |
 | Pause | Esc | Esc | Start |
 
 Hold a direction while pressing attack or special to pick the move:
@@ -36,18 +36,45 @@ Hold a direction while pressing attack or special to pick the move:
 - **Specials**: neutral = projectile; side = lunge; **up = recovery jump** (once per airtime, then you're helpless until you land); down = ground pound with a shockwave.
 - Tap jump for a short hop, hold it for a full jump. Tap down on a floating platform to drop through. Hold down in the air to fast-fall.
 
+**Dodging** (you can't be hit while you glow blue):
+- **Roll**: hold shield and tap left/right (or hold a direction and press shield). You end up facing back the way you came.
+- **Spot dodge**: hold shield and tap down. Sidestep in place.
+- **Air dodge**: press shield in the air. Hold a direction to zip that way. Once per jump; landing or grabbing a ledge resets it.
+
+**Ledges**: fall next to the edge of the main stage to grab it automatically. You're invincible for a moment when you grab (once per trip off the stage), and your double jump and up special come back. From the ledge:
+- **Up or toward the stage**: climb up
+- **Jump**: jump up from the ledge
+- **Attack or special**: climb up with a sweeping kick
+- **Shield**: roll onto the stage
+- **Down or away**: let go
+
+Only one fighter can hang on a ledge at a time, and after 5 seconds you let go.
+
+## The cast
+
+### Draven
+Dab pen in his left hand, a big empty bong in his right. All his arm attacks swing the bong. Floaty and a bit heavy.
+
+| Special | Move | What it does |
+|---|---|---|
+| Neutral | **Dab Rip** | Hits the pen (the LED lights up), then blows a cloud that drifts forward and chips anyone inside it. |
+| Side | **Bong Bonk** | Big overhead bong swing. Slow to come out, but it sends people. |
+| Up | **Rip Rocket** | One huge rip, then he blasts the cloud downward and rides it up. Spikes anyone underneath. His recovery. |
+| Down | **Hotbox** | Exhales a huge cloud that hangs around for 5 seconds. Opponents inside take chip damage and slow down. |
+
+Friends 2–4 are still placeholders with the default moveset.
+
 ## Putting your friends in the game
 
-Placeholder characters are defined in [`src/roster.js`](src/roster.js). Rename them and tweak their stats (weight, speed, jump, gravity, power, size) there.
+Characters are defined in [`src/roster.js`](src/roster.js): name, color, stats (weight, speed, jump, gravity, power, size) and model. A friend with their own moves and props gets a file in [`src/characters/`](src/characters/); [`draven.js`](src/characters/draven.js) is the example to copy.
 
 To use a real 3D model of a friend:
 
-1. **Scan.** Use a phone photogrammetry app like Polycam, KIRI Engine, or Scaniverse. The friend should stand in an **A-pose or T-pose** (arms out from the body) and hold still. Walk slowly all the way around them. Even lighting and no hats help. Export as **GLB** or **OBJ**.
-2. **Clean up** (optional but recommended) in [Blender](https://www.blender.org) (free): delete the floor and background, cut down the polygon count with a *Decimate* modifier (aim for under ~50k triangles), then export.
-3. **Rig + animate.** Upload the model (FBX or OBJ) to [Mixamo](https://www.mixamo.com) (free with an Adobe account). It auto-rigs the skeleton. Download animations named so the game can find them: `idle`, `run`, `jump`, `punch`, `kick`, `hit`. Combine them into one GLB in Blender (import the FBXs, then *File → Export → glTF 2.0*, format `.glb`).
-4. **Drop it in.** Put the file in `public/models/` (e.g. `public/models/jake.glb`), then set `model: 'models/jake.glb'` on that friend's roster entry.
+1. **Make the model.** Easiest: [Meshy](https://www.meshy.ai) image-to-3D from one full-body photo (facing the camera, arms slightly out, plain background). Phone scanning apps (Polycam, KIRI Engine, Scaniverse) also work.
+2. **Rig it.** In Meshy, use **Animate** to auto-rig it as a humanoid. Adding a run animation is nice but optional. Download as **GLB**, with textures if you can.
+3. **Drop it in.** Upload the file to `public/models/` and point that friend's roster entry at it, e.g. `model: 'models/draven.glb'`.
 
-The game scales any model to fighter height automatically. A model with no animations still works: it just leans and squashes instead of animating. Animations are matched by name, so a clip called `Running` or `mixamo_run` is picked up as `run`, and you can add per-move clips named after moves (`fair`, `uspecial`, …).
+The game scales any model to fighter height automatically. If the model has a Mixamo-style skeleton (Meshy's auto-rig does), the game **animates it in code**: idle, jumps, attacks, getting hit and every special. It uses the file's own `run`/`walk` clip for running if there is one. Models exported without textures get a clay look tinted with the character's color. A model with no skeleton at all still works; it just leans and squashes.
 
 ## Project layout
 
@@ -56,19 +83,23 @@ src/
   main.js      menu, match flow, game loop (fixed 60 fps simulation)
   game.js      a single match: hit detection, stage collision, camera, KOs
   fighter.js   fighter physics + state machine (jumping, attacks, hitstun, shield)
-  moves.js     frame data for every move: tweak damage/knockback here
+  moves.js     default frame data for every move: tweak damage/knockback here
+  characters/  per-friend movesets, poses and props (draven.js)
   input.js     keyboard, gamepad and CPU controllers
   roster.js    the characters
   stage.js     stage layout and scenery
-  view.js      fighter visuals (placeholder rig or loaded GLB model)
-  effects.js   hit sparks, KO blasts
+  view.js      fighter visuals (placeholder figure or loaded GLB model)
+  poses.js     procedural poses for idle, jumping, attacks, getting hit
+  puppet.js    drives a rigged model's skeleton from those poses
+  props.js     held props (bong, dab pen)
+  effects.js   hit sparks, KO blasts, vapor clouds
   hud.js       damage % / stock display
 ```
 
 ## Roadmap ideas
 
-- Unique movesets and specials per friend (inside jokes welcome)
-- Ledge grabbing, dodges/rolls, grabs and throws
+- Unique movesets for the rest of the friend group
+- Grabs and throws
 - More stages
 - Items
 - Sound effects and music

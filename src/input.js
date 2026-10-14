@@ -1,7 +1,9 @@
 // Turns keyboards, gamepads and the CPU into one per-frame input shape:
-//   { x, y, jump, jumpHeld, attack, special, shield, downPressed, pause }
-// x/y are -1..1 with +y = up. jump/attack/special/downPressed/pause are
-// "pressed this frame" edges; jumpHeld/shield are held states.
+//   { x, y, jump, jumpHeld, attack, special, shield, shieldPressed,
+//     downPressed, xPressed, pause }
+// x/y are -1..1 with +y = up. jump/attack/special/shieldPressed/downPressed/pause
+// are "pressed this frame" edges; xPressed is -1/1 on the frame left/right is
+// pressed (else 0); jumpHeld/shield are held states.
 
 const KEYMAPS = {
   kb1: {
@@ -15,9 +17,9 @@ const KEYMAPS = {
 };
 
 export const CONTROL_HELP = {
-  kb1: 'Move WASD · Jump W/Space · Attack F · Special G · Shield H',
-  kb2: 'Move Arrows · Jump ↑ · Attack , · Special . · Shield /',
-  gamepad: 'Stick/D-pad move · A/Y jump · X attack · B special · Bumpers/Triggers shield',
+  kb1: 'Move WASD · Jump W/Space · Attack F · Special G · Shield/Dodge H',
+  kb2: 'Move Arrows · Jump ↑ · Attack , · Special . · Shield/Dodge /',
+  gamepad: 'Stick/D-pad move · A/Y jump · X attack · B special · Bumpers/Triggers shield/dodge',
 };
 
 const held = new Set();
@@ -47,7 +49,7 @@ export function endInputFrame() {
 
 const blank = () => ({
   x: 0, y: 0, jump: false, jumpHeld: false, attack: false, special: false,
-  shield: false, downPressed: false, pause: false,
+  shield: false, shieldPressed: false, downPressed: false, xPressed: 0, pause: false,
 });
 
 class KeyboardController {
@@ -67,7 +69,9 @@ class KeyboardController {
     out.attack = wasPressed('attack');
     out.special = wasPressed('special');
     out.shield = isHeld('shield');
+    out.shieldPressed = wasPressed('shield');
     out.downPressed = wasPressed('down');
+    out.xPressed = (wasPressed('right') ? 1 : 0) - (wasPressed('left') ? 1 : 0);
     return out;
   }
 }
@@ -98,7 +102,10 @@ class GamepadController {
       jump: btn(0) || btn(3),
       attack: btn(2),
       special: btn(1),
+      shield: btn(4) || btn(5) || btn(6) || btn(7),
       down: y < -0.7,
+      left: x < -0.7,
+      right: x > 0.7,
       pause: btn(9),
     };
     const edge = (k) => now[k] && !this.prev[k];
@@ -108,8 +115,10 @@ class GamepadController {
     out.jumpHeld = now.jump;
     out.attack = edge('attack');
     out.special = edge('special');
-    out.shield = btn(4) || btn(5) || btn(6) || btn(7);
+    out.shield = now.shield;
+    out.shieldPressed = edge('shield');
     out.downPressed = edge('down');
+    out.xPressed = (edge('right') ? 1 : 0) - (edge('left') ? 1 : 0);
     out.pause = edge('pause');
     this.prev = now;
     return out;
@@ -122,6 +131,7 @@ class CpuController {
     this.cooldown = 30;
     this.jumpCooldown = 0;
     this.shieldFor = 0;
+    this.ledgeWait = 0;
   }
 
   poll(me, world) {
@@ -131,6 +141,22 @@ class CpuController {
     if (this.jumpCooldown > 0) this.jumpCooldown--;
 
     const stage = world.stage.main;
+
+    // Hanging on a ledge: wait a moment, then pick a getup option.
+    if (me.ledge) {
+      if (me.ledge.action) return out;
+      if (!this.ledgeWait) this.ledgeWait = 10 + Math.floor(Math.random() * 50);
+      if (me.ledge.timer < this.ledgeWait) return out;
+      this.ledgeWait = 0;
+      const toward = -me.ledge.ledge.dir;
+      const r = Math.random();
+      if (r < 0.35) out.x = toward;
+      else if (r < 0.55) { out.jump = true; out.jumpHeld = true; }
+      else if (r < 0.75) out.attack = true;
+      else out.shieldPressed = true;
+      return out;
+    }
+
     const offstage = me.x < stage.x1 - 0.1 || me.x > stage.x2 + 0.1 || me.y < stage.top - 0.3;
 
     if (offstage) {
@@ -173,9 +199,19 @@ class CpuController {
       return out;
     }
 
-    // Shield if the target is mid-attack right next to us.
-    if (dist < 2 && target.move && target.move.frame <= 1 && me.grounded && Math.random() < 0.3) {
-      this.shieldFor = 20;
+    // React to an attack starting right next to us: shield, roll away, or spot dodge.
+    if (dist < 2 && target.move && target.move.frame <= 1 && !target.move.def.intangible && me.grounded) {
+      const r = Math.random();
+      if (r < 0.3) this.shieldFor = 20;
+      else if (r < 0.42) {
+        out.shield = out.shieldPressed = true;
+        out.x = -Math.sign(dx) || 1;
+        return out;
+      } else if (r < 0.52) {
+        out.shield = out.shieldPressed = true;
+        out.y = -1;
+        return out;
+      }
     }
     if (this.shieldFor > 0) {
       this.shieldFor--;

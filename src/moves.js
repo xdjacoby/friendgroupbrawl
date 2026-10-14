@@ -9,7 +9,17 @@
 //   growth      how much knockback scales with the victim's percent
 //   angle       launch angle in degrees (0 = forward, 90 = up, -90 = down)
 //
-// `limb` tells the placeholder animation what to swing: 'arm', 'leg' or 'spin'.
+// `limb` tells the animation what to swing: 'arm', 'leg' or 'spin'. A move can
+// instead define `pose(frame)` for a hand-made pose (see src/poses.js).
+// `scripted: true` means the move controls the fighter's velocity itself.
+//
+// Projectile fields (all optional except speed/life/r and the hit fields):
+//   x, y        spawn offset from the feet    look       'orb' or 'cloud'
+//   drag        speed lost per frame (0-1)    grow/maxR  radius growth per second / cap
+//   pierce      keeps going after a hit       hitEvery   frames between hits on the same target
+//   noKnockback chip damage only              slow       frames of slowdown applied on hit
+//   unique      only one alive per owner with this tag
+//   color/opacity/squash   cloud look (squash < 1 flattens it vertically)
 
 export const MOVES = {
   // ---- Ground ----
@@ -61,7 +71,7 @@ export const MOVES = {
   },
   // Side special: lunge forward. Once per airtime.
   sspecial: {
-    total: 40, limb: 'arm', landingLag: 14,
+    total: 40, limb: 'arm', landingLag: 14, scripted: true,
     onStart(f) { f.vy = Math.max(f.vy, 2); },
     onFrame(f, frame) {
       if (frame >= 8 && frame <= 20) { f.vx = 15 * f.facing; f.vy = Math.max(f.vy, 0); }
@@ -71,7 +81,7 @@ export const MOVES = {
   },
   // Up special: the recovery move. Leaves you helpless until you land.
   uspecial: {
-    total: 34, limb: 'arm', helplessAfter: true, landingLag: 18,
+    total: 34, limb: 'arm', helplessAfter: true, landingLag: 18, scripted: true,
     onStart(f) { f.grounded = false; f.fastFalling = false; },
     onFrame(f, frame, input) {
       if (frame >= 4 && frame <= 18) {
@@ -83,7 +93,7 @@ export const MOVES = {
   },
   // Down special: ground pound. In the air it plunges until you land.
   dspecial: {
-    total: 48, limb: 'leg', landingLag: 4,
+    total: 48, limb: 'leg', landingLag: 4, scripted: true,
     onFrame(f, frame, input, world) {
       if (frame < 10) { f.vx *= 0.8; f.vy = Math.max(f.vy, 0) + 0.5; }
       else if (f.grounded) this.onLand(f, world);
@@ -95,6 +105,71 @@ export const MOVES = {
       f.landingLag = 14;
     },
     hitboxes: [{ start: 10, end: 20, x: 0, y: 0.1, r: 0.6, dmg: 12, base: 7, growth: 0.8, angle: -75 }],
+  },
+};
+
+// ---- Dodges and ledge options ----
+// `intangible: [start, end]` frames can't be hit. Shared by every character.
+
+// Curled up mid-roll / mid-air-dodge.
+const CURL = {
+  rThigh: [0.9, -0.3, 0.15], rShin: [-0.6, -0.8, 0.1], lThigh: [0.9, -0.3, -0.15], lShin: [-0.6, -0.8, -0.1],
+  rArm: [0.6, -0.6, 0.3], rFore: [0.6, 0.6, 0.2], lArm: [0.6, -0.6, -0.3], lFore: [0.6, 0.6, -0.2],
+  lean: 0.5,
+};
+
+export const DODGES = {
+  // Ground roll: shield + left/right. You end up facing back the way you came.
+  roll: {
+    total: 28, limb: 'dodge', scripted: true, intangible: [3, 17], hitboxes: [],
+    onStart(f, input) { f.move.dir = Math.sign(input.x) || f.facing; },
+    onFrame(f, frame) {
+      f.vx = frame >= 2 && frame <= 18 ? 9 * f.move.dir : f.vx * 0.6;
+      // Rolls stop at the edge instead of carrying you off the stage.
+      const p = f.platform;
+      if (p && f.grounded) {
+        const next = f.x + f.vx / 60;
+        if (next < p.x1 + 0.25 || next > p.x2 - 0.25) f.vx = 0;
+      }
+      if (frame === 18) f.facing = -f.move.dir;
+    },
+    pose: () => ({ ...CURL, crouch: 0.6 }),
+  },
+  // Spot dodge: shield + down. Sidestep in place.
+  spotdodge: {
+    total: 24, limb: 'dodge', scripted: true, intangible: [2, 16], hitboxes: [],
+    onFrame(f) { f.vx *= 0.6; },
+    pose: () => ({ crouch: 0.3, lean: -0.15 }),
+  },
+  // Air dodge: shield in the air. Hold a direction to zip that way. Once per airtime.
+  airdodge: {
+    total: 32, limb: 'dodge', scripted: true, aerial: true, intangible: [2, 18], landingLag: 10, hitboxes: [],
+    onStart(f, input) {
+      const len = Math.hypot(input.x, input.y);
+      f.move.dir = len > 0.3 ? [input.x / len, input.y / len] : null;
+      f.airDodgeUsed = true;
+      f.fastFalling = false;
+    },
+    onFrame(f, frame) {
+      const d = f.move.dir;
+      if (d && frame <= 12) {
+        const speed = 13 * (1 - frame / 16);
+        f.vx = d[0] * speed;
+        f.vy = d[1] * speed;
+      } else if (d) {
+        f.vx *= 0.88;
+        f.vy = Math.max(f.vy, -6);
+      } else {
+        f.vx *= 0.96;
+        f.vy = Math.max(f.vy, -f.stats.maxFall);
+      }
+    },
+    pose: () => CURL,
+  },
+  // Getup attack from the ledge (after climbing up).
+  ledgeattack: {
+    total: 26, limb: 'leg', intangible: [0, 4],
+    hitboxes: [{ start: 5, end: 9, x: 0.9, y: 0.45, r: 0.7, dmg: 8, base: 8, growth: 0.55, angle: 30 }],
   },
 };
 
