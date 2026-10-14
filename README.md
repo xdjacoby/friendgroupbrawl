@@ -32,7 +32,7 @@ Knock opponents off the stage. Hits raise their damage %, and the higher it is, 
 
 Hold a direction while pressing attack or special to pick the move:
 
-- **Attacks**: neutral jab, side kick, up swipe, down sweep on the ground; neutral spin, forward punch, back kick, up kick, and a down spike in the air.
+- **Attacks**: neutral jab (tap attack again for a combo), side kick, up swipe, down sweep on the ground; neutral spin, forward hammer-fist, back kick, backflip up kick, and a down stomp that spikes in the air. Characters can replace any of these with their own (see the cast below).
 - **Specials**: neutral = projectile; side = lunge; **up = recovery jump** (once per airtime, then you're helpless until you land); down = ground pound with a shockwave.
 - Tap jump for a short hop, hold it for a full jump. Tap down on a floating platform to drop through. Hold down in the air to fast-fall.
 
@@ -50,10 +50,24 @@ Hold a direction while pressing attack or special to pick the move:
 
 Only one fighter can hang on a ledge at a time, and after 5 seconds you let go.
 
+**Seeing hitboxes**: tick **Show hitboxes** in the menu (or press the <kbd>`</kbd> key, left of 1, during a match). Red circles are attacks, orange ones only count while a prop is still in hand, and the yellow boxes are the bodies they have to touch (blue while invincible).
+
 ## The cast
 
 ### Draven
-Dab pen in his left hand, a big empty bong in his right. All his arm attacks swing the bong. Floaty and a bit heavy.
+Dab pen in his left hand, a big empty bong in his right. The bong gives his attacks long reach. Floaty and a bit heavy.
+
+| Attack | Move | What it does |
+|---|---|---|
+| Jab | **Puff, Puff, Pass** | Pen poke, bong backhand, then a bong thrust that sends them off. Keep tapping attack. |
+| Side | **Fore!** | Golf swing with the bong, low to high. Launches up and away. |
+| Up | **Halo** | Swings the bong in a big arc over his head, front to back. |
+| Down | **Floor Sweep** | Crouches and sweeps the bong along the floor. Low launch, nasty near the ledge. |
+| Air neutral | **The Rotation** | Holds the bong out and spins, passing it all the way around. |
+| Air forward | **Bong Hammer** | Overhead slam. The bottom of the swing spikes (meteors) people below. |
+| Air back | **Backhand** | Whips the bong around behind him. His strongest aerial. |
+| Air up | **Smoke Signal** | Quick hit of the pen, then a column of vapor straight up. |
+| Air down | **Bong Plunge** | Drives the bong straight down. Spikes. |
 
 | Special | Move | What it does |
 |---|---|---|
@@ -62,7 +76,19 @@ Dab pen in his left hand, a big empty bong in his right. All his arm attacks swi
 | Up | **Rip Rocket** | One huge rip, then he blasts the cloud downward and rides it up. Spikes anyone underneath. His recovery. |
 | Down | **Hotbox** | Exhales a huge cloud that hangs around for 5 seconds. Opponents inside take chip damage and slow down. |
 
-Friends 2–4 are still placeholders with the default moveset.
+### Jacoby
+Carries a microscope and digs snacks out of the ground. Middleweight, all-rounder. The HUD shows 🔬 while he has the microscope and a 🍪 for each snack stack.
+
+| Special | Move | What it does |
+|---|---|---|
+| Neutral | **Microscope Toss** | Lobs the microscope. It bonks whoever it hits, then lies on the floor until he walks over it to pick it up. If it falls off the stage it pops back into his hand after 3 seconds (or 10 seconds if it's just left lying around). Try it without the microscope and he throws nothing, stares at his empty hand and pats his pockets: wide open. |
+| Side | **Munch** | Lunges mouth-first and takes a bite. Heals 1% when it connects. |
+| Up | **Soda Rocket** | Shakes up a 2-liter, flips it and rides the geyser. The spray hits anyone below. His recovery. |
+| Down | **Snack Dig** | Digs a snack out of the ground and eats it: chips, cookie, donut or (rarely) pizza. Heals 2–5% and adds a **munchies** stack: +4% power each, up to 5, until he's KO'd. Slow, so do it when nobody's close. In the air he dives feet-first (spiking anyone below) and digs in where he lands. |
+
+His own attacks: **Lens Bash** (side, swings the microscope), **Dirt Flick** (down, flings dirt in their face) and **Microscope Smash** (forward air). The microscope swings hit harder and reach farther than his bare fist, so they're weaker while it's on the floor. The rest are the shared moves.
+
+Friends 3 and 4 are still placeholders with the default moveset.
 
 ## Putting your friends in the game
 
@@ -76,6 +102,8 @@ To use a real 3D model of a friend:
 
 The game scales any model to fighter height automatically. If the model has a Mixamo-style skeleton (Meshy's auto-rig does), the game **animates it in code**: idle, jumps, attacks, getting hit and every special. It uses the file's own `run`/`walk` clip for running if there is one. Models exported without textures get a clay look tinted with the character's color. A model with no skeleton at all still works; it just leans and squashes.
 
+Upload the file under the name the character file uses (e.g. `draven.glb`, `jacoby.glb`), or rename it in the character file to match what you uploaded.
+
 ## Project layout
 
 ```
@@ -84,15 +112,15 @@ src/
   game.js      a single match: hit detection, stage collision, camera, KOs
   fighter.js   fighter physics + state machine (jumping, attacks, hitstun, shield)
   moves.js     default frame data for every move: tweak damage/knockback here
-  characters/  per-friend movesets, poses and props (draven.js)
+  characters/  per-friend movesets, poses and props (draven.js, jacoby.js)
   input.js     keyboard, gamepad and CPU controllers
   roster.js    the characters
-  stage.js     stage layout and scenery
+  stage.js     stage layout and cartoon scenery (toon shading, ink outlines, painted textures)
   view.js      fighter visuals (placeholder figure or loaded GLB model)
   poses.js     procedural poses for idle, jumping, attacks, getting hit
   puppet.js    drives a rigged model's skeleton from those poses
-  props.js     held props (bong, dab pen)
-  effects.js   hit sparks, KO blasts, vapor clouds
+  props.js     held props (bong, dab pen, microscope, snacks, soda)
+  effects.js   hit sparks, KO blasts, vapor clouds, pop-up text, dirt and crumbs
   hud.js       damage % / stock display
 ```
 

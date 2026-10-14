@@ -183,6 +183,28 @@ class CpuController {
     const dist = Math.hypot(dx, dy);
     const targetOffstage = target.x < stage.x1 || target.x > stage.x2;
 
+    // Go fetch a thrown prop (Jacoby's microscope) when nobody is in our face.
+    const dropped = world.projectiles.find((p) => p.owner === me && p.resting);
+    if (dropped && dist > 2.5) {
+      out.x = Math.abs(dropped.x - me.x) > 0.2 ? Math.sign(dropped.x - me.x) : 0;
+      if (dropped.y > me.y + 1.2 && me.grounded && this.jumpCooldown === 0) {
+        out.jump = out.jumpHeld = true;
+        this.jumpCooldown = 40;
+      } else if (dropped.y < me.y - 1 && me.grounded && me.platform?.passThrough) {
+        out.y = -1;
+        out.downPressed = true;
+      }
+      return out;
+    }
+
+    // Healing moves (Jacoby's snack dig) when there's room to breathe.
+    if (me.moves.dspecial.cpuHeal && me.grounded && dist > 6 && me.percent > 10 && this.cooldown === 0 && Math.random() < 0.03) {
+      out.y = -1;
+      out.special = true;
+      this.cooldown = 60;
+      return out;
+    }
+
     if (Math.abs(dx) > 1.4) {
       out.x = Math.sign(dx);
       // Don't chase off the edge.
@@ -236,7 +258,7 @@ class CpuController {
         out.attack = true;
       }
       this.cooldown = 18 + Math.floor(Math.random() * 25);
-    } else if (dist > 6 && Math.abs(dy) < 1.5 && this.cooldown === 0 && Math.random() < 0.02) {
+    } else if (dist > 4.5 && Math.abs(dy) < 1.5 && this.cooldown === 0 && me.canUse('nspecial') && Math.random() < 0.02) {
       out.x = 0;
       out.special = true; // fire a projectile from range
       me.facing = Math.sign(dx) || me.facing;

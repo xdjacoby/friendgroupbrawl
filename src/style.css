@@ -172,6 +172,8 @@ button.primary:hover:not(:disabled) { background: #ffdc6b; }
 .hud-name { font-weight: 700; font-size: 0.9rem; }
 .hud-stocks { display: flex; gap: 4px; justify-content: center; margin-top: 4px; min-height: 10px; }
 .hud-stocks span { width: 10px; height: 10px; border-radius: 50%; background: var(--slot); }
+.hud-extra { font-size: 0.85rem; min-height: 0; line-height: 1.2; margin-top: 2px; letter-spacing: 1px; }
+.hud-extra:empty { display: none; }
 @media (max-width: 600px) {
   .hud { gap: 8px; }
   .hud-card { min-width: 0; flex: 1; padding: 6px; }

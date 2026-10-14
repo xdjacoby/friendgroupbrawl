@@ -44,6 +44,7 @@ export class Fighter {
     this.airDodgeUsed = false;
     this.x = x;
     this.y = y;
+    this.prevX = x;
     this.prevY = y;
     this.vx = 0;
     this.vy = 0;
@@ -71,6 +72,15 @@ export class Fighter {
     this.lastHitBy = null;
     this.hitFlash = 0;
     this.slowTimer = 0;
+    this.handEmpty = {}; // { right: true } after throwing the prop in that hand
+    this.propReturn = null; // { side, timer }: a lost prop pops back into your hand
+    this.powerBonus = 0; // e.g. +0.04 per snack Jacoby eats; lost on KO
+    this.charState = {}; // scratch space for character-specific mechanics
+  }
+
+  // Damage multiplier for everything this fighter dishes out.
+  get power() {
+    return this.stats.power * (1 + this.powerBonus);
   }
 
   get eliminated() {
@@ -95,6 +105,8 @@ export class Fighter {
     }
     if (this.hitlag > 0) {
       this.hitlag--;
+      // Don't drop combo presses made during the hit freeze.
+      if (input.attack && this.move?.def.combo) this.move.comboQueued = true;
       return;
     }
     if (this.invuln > 0) this.invuln--;
@@ -102,6 +114,8 @@ export class Fighter {
     if (this.dropTimer > 0) this.dropTimer--;
     if (this.slowTimer > 0) this.slowTimer--;
     if (this.ledgeCooldown > 0) this.ledgeCooldown--;
+    if (this.propReturn && --this.propReturn.timer <= 0) this.regainProp(this.propReturn.side, world);
+    this.prevX = this.x;
     this.prevY = this.y;
 
     if (this.ledge) return this.updateLedge(input, world);
@@ -204,10 +218,22 @@ export class Fighter {
   }
 
   startMove(name, input, world) {
-    const def = this.moves[name];
+    let def = this.moves[name];
+    // Some moves need something you might not have (e.g. a thrown microscope):
+    // `available(f)` says whether you can, `fallback` is what you do instead.
+    if (def.available && !def.available(this)) {
+      name = def.fallback;
+      def = this.moves[name];
+    }
     this.shielding = false;
     this.move = { name, def, frame: 0, hit: new Set() };
     def.onStart?.(this, input, world);
+  }
+
+  // Can this move be used right now (rather than falling back to something else)?
+  canUse(name) {
+    const def = this.moves[name];
+    return !!def && (!def.available || def.available(this));
   }
 
   updateMove(input, world) {
@@ -216,6 +242,10 @@ export class Fighter {
     m.def.onFrame?.call(m.def, this, m.frame, input, world);
     if (this.move !== m) return; // onFrame can end the move (e.g. ground pound landing)
     if (m.def.projectileFrame === m.frame) world.spawnProjectile(this, m.def.projectile);
+    // Jab combos: press attack again to roll into the next hit.
+    const combo = m.def.combo;
+    if (combo && input.attack) m.comboQueued = true;
+    if (combo && m.comboQueued && m.frame >= combo.from) return this.startMove(combo.next, input, world);
     if (m.frame >= m.def.total) {
       this.move = null;
       if (m.def.helplessAfter && !this.grounded) this.helpless = true;
@@ -225,7 +255,30 @@ export class Fighter {
   activeHitboxes() {
     const m = this.move;
     if (!m || this.hitlag > 0) return [];
-    return m.def.hitboxes.filter((hb) => m.frame >= hb.start && m.frame <= hb.end);
+    return m.def.hitboxes.filter((hb) => m.frame >= hb.start && m.frame <= hb.end && !(hb.prop && this.handEmpty[hb.prop]));
+  }
+
+  // Each hitbox `group` (default 0) can hit a given opponent once per move,
+  // so multi-hit moves give each hit its own group.
+  hasHit(victim, hb) {
+    return this.move.hit.has(`${hb.group ?? 0}:${victim.slot}`);
+  }
+
+  markHit(victim, hb) {
+    this.move.hit.add(`${hb.group ?? 0}:${victim.slot}`);
+  }
+
+  heal(amount, world) {
+    const healed = Math.min(this.percent, amount);
+    this.percent -= healed;
+    world.effects.text(this.x, this.y + this.h + 0.55, `-${Math.round(healed)}%`, '#7dff8a');
+    return healed;
+  }
+
+  regainProp(side, world) {
+    this.handEmpty[side] = false;
+    this.propReturn = null;
+    world?.effects.puff(this.x + 0.3 * this.facing, this.y + 1.1, 0.45, 0xffffff, 0.4);
   }
 
   integrate(input) {
@@ -289,8 +342,9 @@ export class Fighter {
     }
   }
 
+  // Returns 'chip', 'shield' or 'hit'.
   takeHit(attacker, hb, dir, world) {
-    const power = attacker.stats?.power ?? 1;
+    const power = attacker.power ?? 1;
     const source = attacker instanceof Fighter ? attacker : attacker.owner;
 
     // Gas-style hits (e.g. a lingering cloud): chip damage that seeps through shields, no knockback.
@@ -299,7 +353,7 @@ export class Fighter {
       this.hitFlash = Math.max(this.hitFlash, 3);
       if (hb.slow) this.slowTimer = Math.max(this.slowTimer, hb.slow);
       this.lastHitBy = source;
-      return;
+      return 'chip';
     }
 
     if (this.shielding) {
@@ -314,7 +368,7 @@ export class Fighter {
         this.grounded = false;
         world.effects.shieldBreak(this);
       }
-      return;
+      return 'shield';
     }
 
     const dmg = hb.dmg * power;
@@ -346,6 +400,7 @@ export class Fighter {
     this.lastHitBy = source;
     this.facing = -dir || this.facing;
     world.onHit(this, kb);
+    return 'hit';
   }
 
   // ---- Ledge ----
