@@ -9,6 +9,7 @@ import { voice } from './voice.js';
 import { outfitsFor, ACCESSORIES } from './cosmetics.js';
 import { STAGES } from './stages.js';
 import { createSelect, resolveChar, RANDOM, CONTROL_OPTIONS } from './select.js';
+import { loadCampus } from './campus.js';
 
 const canvas = document.getElementById('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -212,13 +213,19 @@ function buildSetup() {
 function showResults(ranked) {
   const winner = ranked[0];
   $('winner').textContent = `${winner.character.name} wins!`;
-  $('winner').style.color = SLOT_COLORS[winner.slot];
+  screens.results.style.setProperty('--win', SLOT_COLORS[winner.slot]);
   $('standings').innerHTML = '<tr><th></th><th>Player</th><th>KOs</th><th>Falls</th></tr>' +
     ranked.map((f, i) => `<tr><td>${i + 1}</td><td style="color:${SLOT_COLORS[f.slot]}">P${f.slot + 1} · ${f.character.name}</td><td>${f.koCount}</td><td>${f.falls}</td></tr>`).join('');
   game.ended = true;
   game.hud.el.remove();
-  // The match stays around (for Rematch) but the victory scene takes over the screen.
-  victory = new VictoryScene({ renderer, ranked });
+  // The match stays around (for Rematch) but the victory scene takes over the
+  // screen. A match on the campus keeps its time of day.
+  victory = new VictoryScene({ renderer, ranked, time: game.stageView.timeOfDay });
+  const flash = document.createElement('div');
+  flash.className = 'screen-flash';
+  flash.style.background = '#fff';
+  document.body.appendChild(flash);
+  flash.addEventListener('animationend', () => flash.remove());
   $('quote').textContent = victory.quote ? `"${victory.quote}"` : '';
   applyQuality();
   show('results');
@@ -308,6 +315,11 @@ show('menu');
 applyQuality();
 updateFps();
 requestAnimationFrame(frame);
+
+// Build the campus (the victory screen's backdrop, and the SUNY Canton stage)
+// while the menu is up, and send its big ground texture to the GPU, so the
+// first victory doesn't stutter.
+setTimeout(() => loadCampus().then((campus) => campus && renderer.initTexture(campus.ground)), 1200);
 
 // Handy for tweaking from the browser console.
 window.brawl = { get game() { return game; }, get victory() { return victory; }, ROSTER, showResults, slots, startMatch, buildSetup, renderer };

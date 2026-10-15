@@ -75,13 +75,14 @@ Hold a direction while pressing attack or special to pick the move:
 
 Only one fighter can hang on a ledge at a time, and after 5 seconds you let go.
 
-**Winning**: the last one standing gets a victory screen: they do their own victory animation on a podium while everyone else claps.
+**Winning**: the last one standing gets a Smash-style victory screen. The camera swoops in from a wide shot of SUNY Canton to the winner, who does their own victory animation on a podium on a floating chunk of campus plaza high above the quad, while everyone else claps. Light rays burst behind them, a spotlight shines down, confetti falls, and at sunset or night fireworks go off over campus. The time of day is random (or, after a match on the SUNY Canton stage, whatever time it was when the match ended).
 
 **Cosmetics**: each player card has two pickers under the character. **👕 Outfit** switches between that friend's models (Byron has a second fit; more show up as they're added, see below). **🧢 Extra** adds a beanie, a backwards cap, shades, a gold chain, a crown or a halo, sized to fit whoever wears it. Picks are remembered.
 
 **Stages**: pick one under the player cards (click the picture or the arrows):
 - **Sky Island**: the original floating island.
 - **Rushton Hall**: a snow day in front of the dorm. The real building is the backdrop (from a photo, made cartoony when the stage loads), with the entrance canopy's roof as the top platform, two snowy chunks of the RUSHTON sign as the side platforms, a snowman, the lamp post, icicles and falling snow.
+- **SUNY Canton**: Battlefield over campus. A floating brick-plaza platform with three floating slabs, hovering above the main quad with the whole campus around it: the brick buildings (windows and all), lawns, paths, parking lots full of cars, the woods in fall colors and the Grasse River, out to the farms and the Adirondack foothills. The day goes by during the match: morning, sunset, then night with the windows and lamps lit and stars out.
 
 **Menu options**: **Graphics** (Auto lowers the resolution a little whenever the frame rate dips, then raises it back; Fast is for older laptops: lower resolution, no shadows), **Voices** (voicelines on/off) and **Show FPS** (a frame-rate counter in the corner).
 
@@ -225,12 +226,13 @@ Any model in `public/models/` whose name starts with a friend's id is one of the
 ```
 shrink.html    model shrinker page (makes .glb files small enough for GitHub)
 public/models/ the friends' models (and outfits: <id>cos1.glb, ...) and Byron's Lambo
-public/stages/ photos used by stages (the Rushton Hall backdrop)
+public/stages/ stage files: the Rushton Hall photo, campus.json (SUNY Canton's layout)
 voicelines/    voice clips per friend (see voicelines/README.md)
 tools/
   autorig.py   gives an un-rigged model a skeleton (run by Claude with Blender's Python module)
   slim.py      makes an already rigged model lighter (fewer triangles, smaller textures)
   prep_lambo.py  turns the Sketchfab Aventador into Byron's game-ready Lambo
+  prep_campus.py turns the campus model (tools/campus/campus.obj) into public/stages/campus.json
 src/
   main.js      menu, match flow, game loop (fixed 60 fps simulation)
   select.js    the character select (portraits, player cards, mouse and controller cursors)
@@ -243,7 +245,8 @@ src/
   roster.js    the characters
   stages.js    the stage list (for the stage picker)
   stage.js     Sky Island, plus the cartoon toolkit every stage uses (toon shading, ink outlines, painted textures)
-  stages/      other stages (rushton.js: Rushton Hall)
+  stages/      other stages (rushton.js: Rushton Hall, canton.js: SUNY Canton and the floating islands)
+  campus.js    the SUNY Canton campus, sky and countryside (the victory screen's and SUNY Canton's backdrop)
   view.js      fighter visuals (placeholder figure or loaded GLB model)
   poses.js     procedural poses for idle, jumping, attacks, getting hit
   puppet.js    drives a rigged model's skeleton from those poses (and closes the hands around props)
@@ -254,7 +257,7 @@ src/
   shrink.js    the model shrinker (shrink.html)
   effects.js   hit sparks, KO blasts, vapor clouds, pop-up text, dirt and crumbs
   hud.js       damage % / stock display
-  victory.js   the victory screen
+  victory.js   the victory screen (camera swoop, podium, rays, fireworks)
   voice.js     plays the voicelines
 ```
 
@@ -262,6 +265,7 @@ src/
 
 - Fonts (all [SIL Open Font License](https://openfontlicense.org), bundled through [Fontsource](https://fontsource.org)): [Bangers](https://fonts.google.com/specimen/Bangers) by Vernon Adams, [Luckiest Guy](https://fonts.google.com/specimen/Luckiest+Guy) by Astigmatic, [Fredoka](https://fonts.google.com/specimen/Fredoka) by Milena Brandão.
 - Rushton Hall backdrop: a photo of the real building.
+- SUNY Canton campus layout: from [OpenStreetMap](https://www.openstreetmap.org/copyright) data, © OpenStreetMap contributors, available under the [Open Database License](https://opendatacommons.org/licenses/odbl/).
 - Byron's Lamborghini: ["Lamborghini Aventador SVJ SDC (FREE)"](https://sketchfab.com/3d-models/lamborghini-aventador-svj-sdc-free-784e4656aca649cca55d6b18740a19b2) by [SDC PERFORMANCE](https://sketchfab.com/Lambo_SC04), licensed [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Changed for the game: roof and side windows removed, simplified, recolored lights and trim, resized ([`tools/prep_lambo.py`](tools/prep_lambo.py)).
 
 ## Roadmap ideas
