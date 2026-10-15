@@ -1,15 +1,19 @@
 import * as THREE from 'three';
 import { boneKey } from './rig.js';
+import { RING_STEP } from './props.js';
 
 // Drives a Mixamo-style skeleton (Meshy's auto-rig uses the same bone names)
 // from the procedural poses in poses.js, so a model with only a run cycle can
 // still idle, jump, attack and flinch.
 //
-// Hands (with the measurements from rig.js): a held prop sits in the palm and
-// the fingers close around it; empty hands make a fist, relax or open
-// (pose.rHand / pose.lHand); pose.rReach / pose.lReach put a hand on a point
-// (a ledge, someone you're holding); and elbows and hands are kept out of the
-// torso, the head and each other, so poses can't phase through the body.
+// Hands (with the measurements from rig.js): a held prop's handle is seated
+// in the fist (seatHandle: the tightest curl it still fits in, resting on the
+// palm), flat things lie on the palm with the fingers closed until they touch
+// (closeChains), all tested on real skin points so props don't go through the
+// fingers; empty hands make a fist, relax or open (pose.rHand / pose.lHand);
+// pose.rReach / pose.lReach put a hand on a point (a ledge, someone you're
+// holding); and elbows and hands are kept out of the torso, the head and each
+// other, so poses can't phase through the body.
 
 const BONES = {
   hips: 'Hips', spine: 'Spine', spine1: 'Spine1', spine2: 'Spine2', neck: 'Neck', head: 'Head',
@@ -32,6 +36,30 @@ const CURL = {
 };
 const THUMB = { open: 0, relax: 12 * DEG, grip: 40 * DEG, fist: 55 * DEG, palm: 25 * DEG };
 const MAX_DEVIATION = 50 * DEG; // how far the wrist bends to line a grip up
+// Holding a prop, the fingers close until the skin touches it, each joint
+// up to these (knuckle first). Mittens have two joints doing the work of three.
+const CLOSE_MAX = [95 * DEG, 105 * DEG, 80 * DEG];
+const MITTEN_MAX = [95 * DEG, 120 * DEG];
+const THUMB_MAX = [60 * DEG, 50 * DEG, 50 * DEG];
+const CLOSE_STEPS = 12;
+const SKIN_GAP = 0.001; // stop this far from the prop's surface (meters)
+// A handle is seated in a fist: the tightest of these (scaled down step by
+// step) that it still fits in, with the fingertips reaching past its middle.
+const SEAT_FIST = [85 * DEG, 95 * DEG, 70 * DEG];
+const SEAT_MITTEN = [85 * DEG, 115 * DEG];
+const SEAT_SLIDE = [-0.6, 0, 0.6]; // where along the palm to try (in handle radii)
+const SEAT_SQUISH = 0.12; // fingers may press this much of the handle's radius into it (skin gives; it reads as a grip)
+const SOLVED_KEEP = 48; // grips remembered per hand (a swing goes through the same few over and over)
+
+// Working out a new grip takes a few milliseconds, so at most one a frame
+// (across everyone): other hands keep their last grip for a frame or two.
+let lastSolve = -Infinity;
+function maySolve() {
+  const now = performance.now();
+  if (now - lastSolve < 6) return false;
+  lastSolve = now;
+  return true;
+}
 
 const NEG_Y = new THREE.Vector3(0, -1, 0);
 const _a = new THREE.Vector3();
@@ -49,6 +77,10 @@ const _offset = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _m2 = new THREE.Matrix4();
 const _s = new THREE.Vector3();
+const _jm = Array.from({ length: 4 }, () => new THREE.Vector3());
+const _rqs = Array.from({ length: 4 }, () => new THREE.Quaternion());
+const _sp = new THREE.Vector3();
+const _lp = new THREE.Vector3();
 
 const V = () => new THREE.Vector3();
 
@@ -94,6 +126,19 @@ export class Puppet {
         fingers: info.fingers.map((chain) => chain.map(named).filter(Boolean)),
         thumb: info.thumb.map(named).filter(Boolean),
       };
+      // The same fingers with points on their skin, for closing on a prop.
+      const chain = (c) => {
+        const list = c?.bones.map(named);
+        if (!list || !list.every(Boolean)) return null;
+        // The fingertip: the few points of the last segment farthest from its joint.
+        const last = c.skin[c.skin.length - 1];
+        const tips = last.map((q, i) => [q.length(), i]).sort((x, y) => y[0] - x[0]).slice(0, 3).map(([, i]) => i);
+        return { bones: list, skin: c.skin, tips, world: c.skin.map((pts) => pts.map(() => new THREE.Vector3())), joints: list.map(() => new THREE.Vector3()) };
+      };
+      this.hands[side].chains = (info.chains ?? []).map(chain).filter(Boolean);
+      this.hands[side].thumbChain = chain(info.thumbChain);
+      this.hands[side].closed = {}; // finger/thumb angles worked out per grip (closeChains)
+      this.hands[side].palmPoints = info.palmPoints ?? [];
     }
     // Where each hand's prop sits, relative to the hand bone (see placeProp).
     this.grips = { right: null, left: null };
@@ -390,17 +435,44 @@ export class Puppet {
         curlScale = Math.max(0.75, Math.min(1.35, 0.03 / Math.max(0.01, g.r) * 0.55 + 0.6));
       }
       this.orientHand(H, A, K);
-      // The prop's grip point goes where the fingers close.
-      const front = info.front.clone().applyMatrix4(hand.matrixWorld);
-      const G = g.style === 'palm'
-        ? front.addScaledVector(N, (g.r ?? 0.006) + 0.004)
-        : front.addScaledVector(N, g.r * 0.9).addScaledVector(A, Lw * 0.08);
-      const origin = G.addScaledVector(V().set(0, -(g.y ?? 0), 0).applyQuaternion(Qp), 1);
       const hw = hand.getWorldQuaternion(new THREE.Quaternion());
-      this.grips[side] = {
-        pos: hand.worldToLocal(origin.clone()),
-        quat: hw.invert().multiply(Qp),
-      };
+      const rel = hw.clone().invert().multiply(Qp); // how the prop lies in the hand
+      // The prop's grip point goes where the fingers close.
+      const front = (info.surface ?? info.front).clone().applyMatrix4(hand.matrixWorld);
+      let G;
+      let seat = null;
+      if (g.style === 'palm') G = front.addScaledVector(N, (g.r ?? 0.006) + 0.004);
+      else if (H.chains.length && H.palmPoints.length && prop.extent) {
+        // Seated in the fist (the fingers stay out of it, the handle out of the palm).
+        const q = (x) => Math.round(x * 30); // ~4 degree steps: close enough to share a seat
+        const key = `${q(rel.x)},${q(rel.y)},${q(rel.z)},${q(rel.w)}|${g.r}|${g.y}`;
+        seat = this.seatHandle(H, g, prop.extent, Qp, p, A, N, key);
+        G = seat.center.clone().applyMatrix4(hand.matrixWorld);
+      } else G = front.addScaledVector(N, g.r + 0.002).addScaledVector(A, Lw * 0.08);
+      const origin = G.addScaledVector(V().set(0, -(g.y ?? 0), 0).applyQuaternion(Qp), 1);
+      this.grips[side] = { pos: hand.worldToLocal(origin.clone()), quat: rel };
+      if (H.chains.length) {
+        this.held = { origin, inv: Qp.clone().invert(), grip: g, extent: prop.extent };
+        if (seat) {
+          // Curl the fingers as the seat found; the thumb closes on the handle.
+          const X = V().crossVectors(A, N).normalize();
+          for (const c of H.chains) seat.angles.forEach((a, j) => this.rotateWorld(c.bones[j], X, a));
+          if (H.thumbChain) this.closeChains([H.thumbChain], [A.clone().multiplyScalar(r ? -1 : 1), X, X], THUMB_MAX, H.closed, 'thumb', `${seat.key}`);
+        } else {
+          // Flat things lie on the palm's skin (lifted off it where it bulges),
+          // then the fingers close until they touch them (fixed curl angles
+          // pushed them through phones).
+          let m = 0;
+          for (const lp of H.palmPoints) m = Math.min(m, this.heldDistance(_sp.copy(lp).applyMatrix4(hand.matrixWorld)));
+          for (const c of H.chains) c.skin.forEach((pts, k) => { for (const lp of pts) m = Math.min(m, this.heldDistance(_sp.copy(lp).applyMatrix4(c.bones[k].matrixWorld))); });
+          if (m < 0) {
+            origin.addScaledVector(N, -m);
+            this.grips[side].pos.copy(hand.worldToLocal(origin.clone()));
+          }
+          this.closeOn(H, side);
+        }
+        return;
+      }
     } else {
       // Empty hand: a palm direction from the pose (body space), or leave the wrist as it is.
       const palm = r ? pose.rPalm : pose.lPalm;
@@ -414,6 +486,230 @@ export class Puppet {
       }
     }
     this.curl(H, side, shape, curlScale);
+  }
+
+  // Signed distance (meters) from a world point to the held prop: round
+  // things by how thick they are at that height (props.js `rings`), flat
+  // things held on the palm by their box.
+  heldDistance(p) {
+    const { origin, inv, grip, extent } = this.held;
+    _lp.copy(p).sub(origin).applyQuaternion(inv);
+    if (!extent) return Math.hypot(_lp.x, _lp.z) - grip.r;
+    if (grip.style === 'palm') {
+      const { min, max } = extent.box;
+      const qx = Math.abs(_lp.x - (min.x + max.x) / 2) - (max.x - min.x) / 2;
+      const qy = Math.abs(_lp.y - (min.y + max.y) / 2) - (max.y - min.y) / 2;
+      const qz = Math.abs(_lp.z - (min.z + max.z) / 2) - (max.z - min.z) / 2;
+      const out = Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0));
+      return out + Math.min(Math.max(qx, qy, qz), 0);
+    }
+    // Widest it gets within a finger's width of this height (counted up to a
+    // bit past the handle: rings treat every part as round, which is right
+    // for a pen's button or a bong's mouthpiece, not a chip bag's flat crimp).
+    const { rings, bottom, top } = extent;
+    const y = _lp.y;
+    let r = 0;
+    const b0 = Math.max(0, Math.floor((y - 0.008 - bottom) / RING_STEP));
+    const b1 = Math.min(rings.length - 1, Math.floor((y + 0.008 - bottom) / RING_STEP));
+    for (let b = b0; b <= b1; b++) r = Math.max(r, rings[b]);
+    r = Math.min(r, grip.r * 1.6);
+    const radial = Math.hypot(_lp.x, _lp.z) - r;
+    const past = Math.max(bottom - y, y - top); // beyond its ends
+    return past > 0 ? Math.hypot(Math.max(0, radial), past) : radial;
+  }
+
+  // Fingers (and thumb) close on the held prop until they touch it.
+  closeOn(H, side) {
+    const cur = H.hand.getWorldQuaternion(new THREE.Quaternion());
+    const A = H.info.a.clone().applyQuaternion(cur);
+    const N = H.info.n.clone().applyQuaternion(cur);
+    const X = V().crossVectors(A, N).normalize();
+    // Only re-solve when the prop moved in the hand (the grip changes during
+    // swings, not while idling): otherwise the last answer still fits.
+    const g = this.grips[side];
+    const q = (x) => Math.round(x * 60);
+    const key = `${q(g.quat.x)},${q(g.quat.y)},${q(g.quat.z)},${q(g.quat.w)},${Math.round(g.pos.x * 300)},${Math.round(g.pos.y * 300)},${Math.round(g.pos.z * 300)}`;
+    const maxes = H.info.mitten ? MITTEN_MAX : CLOSE_MAX;
+    // The four fingers close together (scans often share skin between
+    // neighboring fingertips, so fingers at different angles drag it into the prop).
+    if (H.chains.length) this.closeChains(H.chains, [X, X, X], maxes, H.closed, 'fingers', key);
+    if (H.thumbChain) {
+      const tAxis = A.clone().multiplyScalar(side === 'right' ? -1 : 1);
+      this.closeChains([H.thumbChain], [tAxis, X, X], THUMB_MAX, H.closed, 'thumb', key);
+    }
+  }
+
+  // Seats a handle in the fist: curls the fingers (all together, like the
+  // scans' fingers that share skin) as tight as they go while a handle that
+  // thick still fits in the hook between them and the palm, then finds
+  // where along the palm it sits deepest, touching the skin but not inside
+  // it (tested on real skin points, rig.js). Depends only on how the prop
+  // lies in the hand, so it's worked out once per grip. Returns
+  // { key, angles, center (the grip point, in the hand bone's space) }.
+  seatHandle(H, g, extent, Qp, p, A, N, key) {
+    H.seats ??= new Map();
+    const known = H.seats.get(key);
+    if (known) return (H.lastSeat = known);
+    if (H.lastSeat && !maySolve()) return H.lastSeat;
+    const hand = H.hand;
+    const chains = H.chains;
+    const n = Math.min(...chains.map((c) => c.bones.length));
+    for (const c of chains) {
+      for (let j = 0; j < n; j++) c.bones[j].getWorldPosition(c.joints[j]);
+      for (let k = 0; k < n; k++) for (let i = 0; i < c.skin[k].length; i++) c.world[k][i].copy(c.skin[k][i]).applyMatrix4(c.bones[k].matrixWorld);
+    }
+    const palm = H.palmPoints.map((lp) => lp.clone().applyMatrix4(hand.matrixWorld));
+    const X = V().crossVectors(A, N).normalize();
+    const held = { origin: V(), inv: Qp.clone().invert(), grip: g, extent };
+    this.held = held;
+    // How far the handle is from the skin (negative: into it). The fingers
+    // can squish into it a little, the palm can't.
+    const inside = (C, pts) => {
+      held.origin.copy(C).addScaledVector(p, g.y ?? 0);
+      let m = Infinity;
+      const squish = Math.min(0.004, SEAT_SQUISH * g.r);
+      for (let i = 0; i < pts.length; i++) m = Math.min(m, this.heldDistance(pts[i]) + (i < fingerCount ? squish : 0));
+      return m;
+    };
+    let fingerCount = 0;
+    // Start resting on the middle of the palm.
+    const mid = H.info.palm.clone().applyMatrix4(hand.matrixWorld);
+    let top = 0;
+    for (const q of palm) top = Math.max(top, q.clone().sub(mid).dot(N));
+    const base = mid.addScaledVector(N, top + g.r + SKIN_GAP);
+    const fist = H.info.mitten ? SEAT_MITTEN : SEAT_FIST;
+    const pts = [];
+    const tips = [];
+    // Where the handle sits with the fingers curled `s` of the way to a fist,
+    // if it fits there and they wrap it (null if not; `any` takes it anyway).
+    const tryCurl = (s, any = false) => {
+      const ang = fist.slice(0, n).map((a) => a * s);
+      for (let j = 0; j < n; j++) _rqs[j].setFromAxisAngle(X, ang[j]);
+      pts.length = 0;
+      tips.length = 0;
+      for (const c of chains) {
+        for (let j = 0; j < n; j++) {
+          _jm[j].copy(c.joints[j]);
+          for (let r2 = 0; r2 < j; r2++) _jm[j].sub(_jm[r2]).applyQuaternion(_rqs[r2]).add(_jm[r2]);
+        }
+        for (let k = 0; k < n; k++) {
+          c.world[k].forEach((q, i) => {
+            const tip = k === n - 1 && c.tips.includes(i);
+            const w = q.clone();
+            for (let r2 = 0; r2 <= k; r2++) w.sub(_jm[r2]).applyQuaternion(_rqs[r2]).add(_jm[r2]);
+            pts.push(w);
+            if (tip) tips.push(w);
+          });
+        }
+      }
+      fingerCount = pts.length;
+      pts.push(...palm);
+      let seat = null;
+      for (const da of SEAT_SLIDE) {
+        const C = base.clone().addScaledVector(A, da * g.r);
+        // Lift it out of anything it's in.
+        let m = inside(C, pts);
+        for (let it = 0; it < 6 && m < 0; it++) {
+          C.addScaledVector(N, -m + 0.0005);
+          m = inside(C, pts);
+        }
+        if (m < 0) continue;
+        const depth = C.clone().sub(base).dot(N);
+        if (!seat || depth < seat.depth - 1e-4) seat = { C, depth };
+      }
+      if (!seat) return null;
+      // Gripped: the handle still rests against the palm (not lifted out on
+      // top of a fist too tight for it), and the fingertips come up past its middle.
+      let reach = -Infinity;
+      for (const t of tips) reach = Math.max(reach, t.clone().sub(seat.C).dot(N));
+      return any || (seat.depth <= 0.3 * g.r + 0.003 && reach >= 0) ? { angles: ang, C: seat.C } : null;
+    };
+    // The tightest curl that works, stepping down from a full fist (too tight
+    // and it won't fit, too loose and the fingers don't reach round it, so the
+    // ones that work are a band in between: no halving search).
+    let best = null;
+    for (let s = 1; s > 0.06 && !best; s -= 0.125) best = tryCurl(s);
+    // Too fat to wrap at all: an open hand with it resting on the palm.
+    best ??= tryCurl(0, true) ?? { angles: new Array(n).fill(0), C: base };
+    const seat = { key, angles: best.angles, center: hand.worldToLocal(best.C.clone()) };
+    if (H.seats.size >= SOLVED_KEEP) H.seats.delete(H.seats.keys().next().value);
+    H.seats.set(key, seat);
+    return (H.lastSeat = seat);
+  }
+
+  // Closes fingers around the prop, wrapping like a real grasp: the first
+  // joint bends until its segment touches, then the next one curls on from
+  // there, and so on to the tip (each segment ends up resting on the prop).
+  // "Touching" is tested on real points of the fingers' skin (rig.js), so
+  // they don't sink into it. The chains given share one set of angles
+  // (scans often share skin between neighboring fingertips, so fingers at
+  // different angles would drag it into the prop).
+  closeChains(chains, axes, maxes, memo, name, key) {
+    const n = Math.min(...chains.map((c) => c.bones.length));
+    memo[name] ??= new Map();
+    let angles = memo[name].get(key) ?? (memo[name].last && !maySolve() ? memo[name].last : null);
+    if (!angles) {
+      for (const c of chains) {
+        for (let j = 0; j < n; j++) c.bones[j].getWorldPosition(c.joints[j]);
+        for (let k = 0; k < n; k++) for (let i = 0; i < c.skin[k].length; i++) c.world[k][i].copy(c.skin[k][i]).applyMatrix4(c.bones[k].matrixWorld);
+      }
+      // Smallest gap between any finger's segment k and the prop, with the joints bent by `ang`.
+      const gap = (ang, k) => {
+        for (let j = 0; j <= k; j++) _rqs[j].setFromAxisAngle(axes[j], ang[j]);
+        let min = Infinity;
+        for (const c of chains) {
+          // Each joint turns about where it is once the joints before it have turned.
+          for (let j = 0; j <= k; j++) {
+            _jm[j].copy(c.joints[j]);
+            for (let r = 0; r < j; r++) _jm[j].sub(_jm[r]).applyQuaternion(_rqs[r]).add(_jm[r]);
+          }
+          for (const p of c.world[k]) {
+            _sp.copy(p);
+            for (let r = 0; r <= k; r++) _sp.sub(_jm[r]).applyQuaternion(_rqs[r]).add(_jm[r]);
+            min = Math.min(min, this.heldDistance(_sp));
+          }
+        }
+        return min - SKIN_GAP;
+      };
+      const ang = new Array(n).fill(0);
+      // A fat handle can already touch a segment at rest: that one may not sink in deeper.
+      const limit = Array.from({ length: n }, (_, k) => Math.min(0, gap(ang, k)));
+      const clear = (k) => gap(ang, k) >= limit[k];
+      const steps = maxes.map((m) => m / CLOSE_STEPS);
+      for (let j = 0; j < n; j++) {
+        const max = maxes[Math.min(j, maxes.length - 1)];
+        const step = steps[Math.min(j, steps.length - 1)];
+        // Bend until this segment touches...
+        while (ang[j] < max) {
+          const before = ang[j];
+          ang[j] = Math.min(max, before + step);
+          if (clear(j)) continue;
+          let lo = before;
+          let hi = ang[j];
+          for (let it = 0; it < 3; it++) {
+            ang[j] = (lo + hi) / 2;
+            if (clear(j)) lo = ang[j];
+            else hi = ang[j];
+          }
+          ang[j] = lo;
+          break;
+        }
+        // ...but not so far that the next segment starts out inside it.
+        for (let it = 0; j + 1 < n && it < 2 * CLOSE_STEPS && ang[j] > 0 && !clear(j + 1); it++) ang[j] = Math.max(0, ang[j] - step / 2);
+      }
+      // Anything still inside (a segment that couldn't open far enough):
+      // open the joints before it until it's out.
+      for (let k = n - 1; k > 0; k--) {
+        for (let j = k - 1; j >= 0 && !clear(k); j--) {
+          for (let it = 0; it < 2 * CLOSE_STEPS && ang[j] > 0 && !clear(k); it++) ang[j] = Math.max(0, ang[j] - steps[Math.min(j, steps.length - 1)] / 2);
+        }
+      }
+      angles = ang;
+      if (memo[name].size >= SOLVED_KEEP) memo[name].delete(memo[name].keys().next().value);
+      memo[name].set(key, angles);
+    }
+    memo[name].last = angles;
+    for (const c of chains) for (let j = 0; j < n; j++) this.rotateWorld(c.bones[j], axes[j], angles[j]);
   }
 
   orientHand(H, A, K) {

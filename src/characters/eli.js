@@ -12,12 +12,15 @@ import { REST as GUARD_REST, GRABS } from '../moves.js';
 // ---- Brainrot ----
 // Every bubble that hits someone gives them a stack of brainrot (it wears off
 // after a few seconds without a new one). Three stacks and they're
-// BRAINROTTED: left and right swap for a few seconds.
+// BRAINROTTED: left and right swap for a couple of seconds.
+// (Balance: it was 3 s of swapped controls that could be stacked right back
+// up while it lasted; now 2 s, and no new stacks until it wears off.)
 const ROT_STACKS = 3;
-const ROT_FRAMES = 180; // how long the controls stay swapped
-const ROT_KEEP = 480; // stacks wear off this long after the last one
+const ROT_FRAMES = 120; // how long the controls stay swapped
+const ROT_KEEP = 360; // stacks wear off this long after the last one
 
 function brainrot(v, eli, world) {
+  if (v.confused > 0) return; // already brainrotted: let them get their bearings first
   const st = v.status;
   const prev = st.brainrot && world.frame - st.brainrot.at < ROT_KEEP ? st.brainrot.stacks : 0;
   const stacks = prev + 1;
@@ -25,7 +28,7 @@ function brainrot(v, eli, world) {
     st.brainrot = null;
     v.confused = ROT_FRAMES;
     world.effects.popBubble(v.x, v.y + v.h + 0.9, 'BRAINROTTED', '#a259ff', 0.45, 1.3);
-    gainClout(eli, 15, world);
+    gainClout(eli, CLOUT_ROT, world);
     return;
   }
   st.brainrot = { stacks, at: world.frame };
@@ -83,10 +86,10 @@ function boomerang(p, world) {
 
 // Neutral special: one bubble per press, in this order. Each one does its own thing.
 const PHRASES = [
-  // Fast and straight.
-  { text: 'NEEGY', color: '#ff2d6f', speed: 15, life: 48, r: 0.36, dmg: 5, base: 4.5, growth: 0.35, angle: 30, update: drift },
+  // Fast and straight (about 9 m: no longer across the whole stage).
+  { text: 'NEEGY', color: '#ff2d6f', speed: 13, life: 42, r: 0.36, dmg: 5, base: 4.5, growth: 0.35, angle: 30, update: drift },
   // Big, slow and lingering: hits a few times, and eats other people's projectiles.
-  { text: 'GUCCI MORTY', color: '#2bd96b', speed: 4.5, drag: 0.012, life: 130, r: 0.62, pierce: true, hitEvery: 20, dmg: 2.5, base: 3.5, growth: 0.12, angle: 55, update: gucciEats },
+  { text: 'GUCCI MORTY', color: '#2bd96b', speed: 4.5, drag: 0.012, life: 105, r: 0.62, pierce: true, hitEvery: 20, dmg: 2.5, base: 3.5, growth: 0.12, angle: 55, update: gucciEats },
   // Short range, but it bonks, then bursts into three little kirks.
   { text: 'KIRK', color: '#ffb31f', speed: 9.5, drag: 0.07, life: 34, r: 0.55, dmg: 8, base: 7.5, growth: 0.75, angle: 40, update: drift, onEnd: kirkSplit },
   // Wobbles out and boomerangs back.
@@ -96,9 +99,12 @@ const PHRASES = [
 // Words that float up off his phone while he doomscrolls.
 const SCROLL_WORDS = ['skibidi', 'rizz', 'gyatt', 'fanum tax', 'mewing', 'ohio', 'sigma', 'aura +1000', 'NEEGY', 'delulu'];
 
-const CLOUT_BUBBLE = 15; // clout per bubble hit
-const CLOUT_SPECIAL = 12; // ...per Griddy hit
-const CLOUT_SCROLL = 0.55; // ...per frame of doomscrolling
+// The van is his big payoff, so it takes a while: about 8 bubble hits, or
+// ~4 seconds of standing there doomscrolling (it used to come much sooner).
+const CLOUT_BUBBLE = 9; // clout per bubble hit
+const CLOUT_ROT = 10; // ...for brainrotting someone
+const CLOUT_SPECIAL = 10; // ...per Griddy hit
+const CLOUT_SCROLL = 0.45; // ...per frame of doomscrolling
 
 function gainClout(f, amount, world) {
   const st = f.charState;
@@ -140,7 +146,7 @@ const SCROLL_MAX = 180;
 // The van Eli calls in when he's gone viral. Drives in from behind him.
 const FBI_VAN = {
   look: 'prop', prop: 'fbiVan', drive: true, gravity: 0, ride: 1.0, x: -12, y: 0, speed: 26, vy: 0, life: 90,
-  r: 1.3, pierce: true, hitEvery: 999, dmg: 16, base: 9.5, growth: 1.15, angle: 35,
+  r: 1.3, pierce: true, hitEvery: 999, dmg: 15, base: 9.5, growth: 1.1, angle: 35,
   onHit(p, victim, world) {
     world.effects.text(victim.x, victim.y + victim.h + 0.5, 'OPEN UP!', '#ffd400', 0.55, 1.0);
   },
@@ -441,7 +447,7 @@ export const ELI = {
     // back). Hold up or down to aim it. Every hit builds clout and a stack of
     // brainrot: three stacks and their left and right swap for a few seconds.
     nspecial: {
-      total: 30, limb: 'arm',
+      total: 38, limb: 'arm', // was 30: a bubble every half second was too easy to camp with
       onFrame(f, frame, input, world) {
         if (frame !== 11) return;
         const st = f.charState;
@@ -467,8 +473,8 @@ export const ELI = {
         [0, REST],
         [6, { lArm: [0.45, -0.75, -0.3], lFore: 'mouth', lean: -0.1, look: 0.2 }],
         [11, { lean: 0.3, look: 0.05 }],
-        [16, {}],
-        [26, REST],
+        [20, {}],
+        [34, REST],
       ]),
     },
 
@@ -619,7 +625,7 @@ export const ELI = {
     // FBI OPEN UP: he makes a call, and an FBI van tears across the stage from
     // behind him, running over everyone in its path. Uses up all his clout.
     fbi: {
-      total: 56, limb: 'arm',
+      total: 64, limb: 'arm',
       onFrame(f, frame, input, world) {
         if (frame === 6) world.effects.text(f.x, f.y + f.h + 0.4, '*ring ring*', '#ffffff', 0.35, 0.8);
         if (frame === 18) {
@@ -634,8 +640,8 @@ export const ELI = {
         [0, REST],
         [6, { rArm: [0.25, -0.5, 0.75], rFore: 'mouth', look: 0.05, glow: 1 }],
         [18, { lArm: [1, 0.15, -0.3], lFore: [1, 0.2, -0.1], lean: 0.15, look: 0.1 }],
-        [40, {}],
-        [52, REST],
+        [46, {}],
+        [60, REST],
       ]),
     },
   },

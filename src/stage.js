@@ -15,10 +15,12 @@ export function createStage() {
       { x: main.x1, y: main.top, dir: -1, platform: main, holder: null },
       { x: main.x2, y: main.top, dir: 1, platform: main, holder: null },
     ],
+    // Low enough that everyone's first jump reaches the sides (the lowest
+    // full hop tops out at ~2.7 m), and the top one from a side platform.
     platforms: [
-      { x1: -4.4, x2: -1.6, y: 2.7, passThrough: true },
-      { x1: 1.6, x2: 4.4, y: 2.7, passThrough: true },
-      { x1: -1.4, x2: 1.4, y: 5.3, passThrough: true },
+      { x1: -4.4, x2: -1.6, y: 2.0, passThrough: true },
+      { x1: 1.6, x2: 4.4, y: 2.0, passThrough: true },
+      { x1: -1.4, x2: 1.4, y: 4.0, passThrough: true },
     ],
     blast: { left: -19, right: 19, top: 15, bottom: -10 },
     respawnY: 8,
@@ -395,7 +397,8 @@ export function buildStageScene(stage, scene) {
   // ---- Pass-through platforms: little wooden plank decks ----
   const plankMat = toon(0xffffff, { map: plankTexture() });
   for (const p of stage.platforms) {
-    const deck = place(new RoundedBoxGeometry(p.x2 - p.x1, 0.26, 2.0, 2, 0.06), plankMat, (p.x1 + p.x2) / 2, p.y - 0.13, 0, scene);
+    // Thin enough to clear the heads of people walking underneath.
+    const deck = place(new RoundedBoxGeometry(p.x2 - p.x1, 0.2, 2.0, 2, 0.06), plankMat, (p.x1 + p.x2) / 2, p.y - 0.1, 0, scene);
     ink(deck, 0.045);
   }
 
