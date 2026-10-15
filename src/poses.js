@@ -10,6 +10,10 @@
 // rProp/lProp ('club' = along the forearm, 'upright' = held vertical),
 // rHeld/lHeld (show this prop in that hand instead of the usual one; null = empty hand),
 // glow (0-1, lights up a held prop like the dab pen, or inflates Jacoby's chip bag).
+// Hands (rigged models): rHand/lHand ('fist', 'relax', 'open', 'grip'; a held
+// prop always gets gripped), rPalm/lPalm (body-space direction the palm faces,
+// for empty hands), rReach/lReach (body-space point in meters from the feet:
+// the palm goes there and the elbow bends to fit, e.g. hands on the ledge).
 //
 // Attacks use keyframes() so the swing lands on the same frames as the hitbox.
 // Handy reference points (body space, model scaled to 1.8m): shoulders ~1.45m up,
@@ -104,6 +108,7 @@ function blend(a, b, t) {
     const y = b[k];
     if (x === undefined) out[k] = y;
     else if (y === undefined) out[k] = x;
+    else if (k.endsWith('Reach') && Array.isArray(x) && Array.isArray(y)) out[k] = x.map((v, i) => v + (y[i] - v) * t); // points, not directions
     else if (Array.isArray(x) && Array.isArray(y)) out[k] = slerpDir(x, y, t);
     else if (typeof x === 'number' && typeof y === 'number') out[k] = x + (y - x) * t;
     else out[k] = t < 0.5 ? x : y;
@@ -200,6 +205,30 @@ export function stateOf(f) {
   return 'idle';
 }
 
+// Empty hands by state: fists to fight, a hook on the ledge, open when flailing.
+const HANDS = {
+  idle: 'relax', run: 'relax', rise: 'relax', fall: 'relax', crouch: 'fist', duck: 'relax',
+  attack: 'fist', hold: 'grip', held: 'open', hurt: 'open', helpless: 'open', ledge: 'grip', climb: 'grip',
+};
+
+// Hands on the edge while hanging, on whoever you're holding during a grab.
+function reaches(f, state, pose) {
+  const s = f.stats.scale;
+  if (state === 'ledge') {
+    const lg = f.ledge.ledge;
+    const x = ((lg.x - f.x) * f.facing) / s - 0.04;
+    const y = (lg.y - f.y) / s + 0.04;
+    Object.assign(pose, { rReach: [x, y, 0.2], lReach: [x, y, -0.2], rPalm: [0.3, -1, 0], lPalm: [0.3, -1, 0] });
+  } else if (f.holding && !(f.move?.def.throw && f.move.frame > f.move.def.throw.frame)) {
+    const v = f.holding.victim;
+    const x = ((v.x - f.x) * f.facing) / s - 0.16;
+    const y = (v.y + v.h * 0.6 - f.y) / s;
+    if (x > 0.15 && x < 0.95 && Math.abs(y - 1.2) < 0.7) {
+      Object.assign(pose, { rReach: [x, y, 0.19], lReach: [x, y + 0.04, -0.19], rPalm: [0.2, 0, -1], lPalm: [0.2, 0, 1] });
+    }
+  }
+}
+
 export function computePose(f, time) {
   const state = stateOf(f);
   const poses = f.character.poses ?? {};
@@ -229,6 +258,9 @@ export function computePose(f, time) {
     pose.rFore = [w, 1, 0.3];
     pose.lFore = [-w, 1, -0.3];
   }
+  pose.rHand ??= HANDS[state] ?? 'relax';
+  pose.lHand ??= HANDS[state] ?? 'relax';
+  if (f.ledge || f.holding) reaches(f, state, pose);
   pose.state = state;
   return pose;
 }

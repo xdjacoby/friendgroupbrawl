@@ -22,9 +22,10 @@ voicelines/
 | `victory` | Victory screen |
 | `ko` | They get KO'd |
 | `hurt` | They take a really big hit (about half the time) |
+| `parry` | They parry a hit |
 | a move's name (below) | They use that move (most of the time, not every single time) |
 
-Moves everyone has: `jab`, `ftilt`, `utilt`, `dtilt`, `nair`, `fair`, `bair`, `uair`, `dair`, `nspecial`, `sspecial`, `uspecial`, `dspecial`, `grab`, `pummel`, `fthrow`, `bthrow`, `uthrow`, `dthrow`, `roll`, `airdodge`.
+Moves everyone has: `jab`, `ftilt`, `utilt`, `dtilt`, `nair`, `fair`, `bair`, `uair`, `dair`, `nspecial`, `sspecial`, `uspecial`, `dspecial`, `grab`, `pummel`, `fthrow`, `bthrow`, `uthrow`, `dthrow`, `roll`, `airdodge`. (Eli's `uspecial` is his Subway Surfers hoverboard now.)
 
 Moves only some characters have:
 

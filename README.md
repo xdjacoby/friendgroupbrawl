@@ -29,7 +29,8 @@ Knock opponents off the stage. Hits raise their damage %, and the higher it is, 
 | Attack | F | , | X |
 | Special | G | . | B |
 | Shield / dodge | H | / | Triggers |
-| Grab | J (or H + F) | M (or / + ,) | Bumpers (or trigger + X) |
+| Grab | J (or H + F) | M (or / + ,) | Left bumper (or trigger + X) |
+| Parry | K | N | Right bumper |
 | Pause | Esc | Esc | Start |
 
 Hold a direction while pressing attack or special to pick the move:
@@ -48,7 +49,12 @@ Hold a direction while pressing attack or special to pick the move:
 **Dodging** (you can't be hit while you glow blue):
 - **Roll**: hold shield and tap left/right (or hold a direction and press shield). You end up facing back the way you came.
 - **Spot dodge**: hold shield and tap down. Sidestep in place.
-- **Air dodge**: press shield in the air. Hold a direction to zip that way. Once per jump; landing or grabbing a ledge resets it.
+- **Air dodge**: press shield in the air. Hold a direction to dash about 3 m that way. You get one per jump (your double jump gives you another); landing or grabbing a ledge resets it.
+- **Wavedash**: air dodge down-and-sideways into the floor and you keep the speed: you slide a few meters along the ground.
+
+**Parry** (its own button, like in A Few Quick Matches): press it right before a hit lands (there's a short window, about 8 frames) and the hit bounces off you. You flash, both of you freeze for a beat, and then **they're stuck seeing stars** while you're free to hit them. Projectiles fly back and count as yours. Press it too early or too late and you're open for a moment. Grabs go right through a parry, so don't parry everything.
+
+**Bodies are solid**: you can't walk through someone; you shove them along instead (nobody gets pushed off an edge). Rolls, dodges and people flying from a hit still pass through.
 
 **Ledges**: fall next to the edge of the main stage to grab it automatically. You're invincible for a moment when you grab (once per trip off the stage), and your double jump and up special come back. From the ledge:
 - **Up or toward the stage**: climb up
@@ -60,6 +66,12 @@ Hold a direction while pressing attack or special to pick the move:
 Only one fighter can hang on a ledge at a time, and after 5 seconds you let go.
 
 **Winning**: the last one standing gets a victory screen: they do their own victory animation on a podium while everyone else claps.
+
+**Cosmetics**: each player card has two pickers under the character. **👕 Outfit** switches between that friend's models (Byron has a second fit; more show up as they're added, see below). **🧢 Extra** adds a beanie, a backwards cap, shades, a gold chain, a crown or a halo, sized to fit whoever wears it. Picks are remembered.
+
+**Stages**: pick one under the player cards (click the picture or the arrows):
+- **Sky Island**: the original floating island.
+- **Rushton Hall**: a snow day in front of the dorm. The real building is the backdrop (from a photo, made cartoony when the stage loads), with the entrance canopy's roof as the top platform, two snowy chunks of the RUSHTON sign as the side platforms, a snowman, the lamp post, icicles and falling snow.
 
 **Menu options**: **Graphics** (Auto lowers the resolution a little whenever the frame rate dips, then raises it back; Fast is for older laptops: lower resolution, no shadows), **Voices** (voicelines on/off) and **Show FPS** (a frame-rate counter in the corner).
 
@@ -119,13 +131,13 @@ Chronically online, fluent in brainrot. Built like Velma from MultiVersus: speec
 
 | Special | Move | What it does |
 |---|---|---|
-| Neutral | **Brainrot** | Shouts a speech bubble. They come in order: **NEEGY** (fast and straight), **GUCCI MORTY** (big, slow, hangs around and hits a few times), **KIRK** (short range, bonks hard), **FUNKY EHH** (wobbles up and down). Bubble hits build clout. |
+| Neutral | **Brainrot** | Shouts a speech bubble (hold up or down to aim it). They come in order: **NEEGY** (fast and straight), **GUCCI MORTY** (big, slow, hangs around and hits a few times, and **eats other people's projectiles**), **KIRK** (short range, bonks hard, then **bursts into three little kirks**), **FUNKY EHH** (wobbles out and **comes back like a boomerang**, hitting again on the way). Every hit builds clout and gives them a stack of **brainrot**: three stacks and they're **BRAINROTTED**, their left and right swap for 3 seconds. |
 | Side | **Hit the Griddy** | Hold the button to hype it up (he griddies in place), let go to griddy across the stage into them. Charged past halfway it's the strong version. Builds clout. |
-| Up | **Prime Time** | Spills a bottle of Prime and rides the energy up. On the ground it leaves a puddle for a few seconds: it slows anyone standing in it, and staying in it too long gets them **STUCK** to the floor. His recovery. |
+| Up | **Subway Surfers** | Pulls out a hoverboard and surfs off in whatever direction you hold (straight up if you don't), **steering as he goes**, leaving a trail of coins. Hits on takeoff and along the ride. His recovery. |
 | Down | **Doomscroll** / **FBI OPEN UP** | Stares at his phone for as long as you hold the button, building clout (wide open while he does). When clout hits 100% (📈VIRAL), down special on the ground **calls the FBI**: a black van tears across the stage from behind him and runs over everyone in its way. Uses up all his clout. |
 
 ### Andrew
-Type 1 diabetic, and his whole kit is built around it. Carries an insulin pen. He has to manage his **blood sugar** while he fights (the HUD shows 🩸 and his mg/dL):
+Type 1 diabetic, and his whole kit is built around it. Carries an insulin pen and wears his **CGM** (the glucose sensor) on the back of his left arm; its light shows his sugar: green normal, yellow rush, red spike, blue low. He has to manage his **blood sugar** while he fights (the HUD shows 🩸 and his mg/dL):
 
 - **LOW** (under 70): slower and hits weaker until he gets sugar in him.
 - **Normal** (70–180).
@@ -155,7 +167,7 @@ It slowly burns off during the match (about 1.5 a second), so every so often he 
 | Down | **Juice Box** | Drinks a juice box: +80 mg/dL and heals 2%. Fixes a low, or tips him into a sugar rush. Drink too many and he spikes. |
 
 ### Byron
-A professional larper: confidently "knows" karate, parkour, Krav Maga and cars, and doesn't. Fights with his **wired earbuds** like Wonder Woman's Lasso of Truth from MultiVersus, and his side special is his **Lamborghini**, which works like Wario's bike in Smash. The HUD shows 🏎️ when the Lambo's ready and 🔧 when it's "in the shop".
+A professional larper: confidently "knows" karate, parkour, Krav Maga and cars, and doesn't. Fights with his **wired earbuds** like Wonder Woman's Lasso of Truth from MultiVersus, and his side special is his **Lamborghini**, which works like Wario's bike in Smash. The HUD shows 🏎️ READY when the Lambo's ready, 💨 while he's driving, 💥 when it's about to blow, and 🔧 with a countdown while it's "in the shop".
 
 | Attack | Move | What it does |
 |---|---|---|
@@ -173,7 +185,7 @@ A professional larper: confidently "knows" karate, parkour, Krav Maga and cars, 
 | Special | Move | What it does |
 |---|---|---|
 | Neutral | **Lasso of Truth** | Throws his earbuds out like a lasso. On the ground it grabs whoever it touches from far away (even through shields), reels them in, and he's holding them: throw away. In the air it flies up at an angle and yanks people toward him, and if it reaches a ledge while he's off the stage he **zips to it** (a tether recovery). |
-| Side | **Lambo** | Hops in his Lamborghini and it drives itself. **Hold forward** to go faster, **hold back** to brake and spin it around, **jump** to hop it, **up** for a wheelie. Running someone over at speed sends them. **Special or shield** bails out (so does jump in the air), and the empty car keeps rolling and wrecks. One Lambo at a time: after it wrecks it's in the shop for a few seconds, and trying again just gets you "IT'S IN THE SHOP" (wide open). Drive it off the stage and don't bail, and you go down with it. |
+| Side | **Lambo** | Hops in his Lamborghini (an Aventador SVJ with the roof cut off; he'll tell you it's a Huracán) and it drives itself. **Hold forward** to go faster, **hold back** to brake and spin it around, **jump** to hop it, **up** for a wheelie. Running someone over at speed sends them. **Special or shield** bails out (so does jump in the air), and the empty car keeps rolling, starts smoking and **explodes**: a big KABOOM that launches anyone near it (not him). One Lambo at a time: after it wrecks it's in the shop for a few seconds, and trying again just gets you "IT'S IN THE SHOP" (wide open). Drive it off the stage and don't bail, and you go down with it. |
 | Up | **Parkour!** | A huge backflip straight up with the earbuds whirling around him. Hits twice. His recovery. |
 | Down | **Krav Maga (trust me bro)** | A counter: drops into a stance, and if anything hits him during it he slips it and answers with a spinning kick. Nothing hits him? He just stands there. |
 
@@ -192,16 +204,23 @@ The game scales any model to fighter height automatically. If the model has a Mi
 
 Upload the file under the name the character file uses (e.g. `draven.glb`, `jacoby.glb`), or rename it in the character file to match what you uploaded.
 
+### New outfits (cosmetics)
+
+Any model in `public/models/` whose name starts with a friend's id is one of their outfits, and it shows up in the 👕 Outfit picker by itself: `byroncos1.glb` is Byron's second fit, so the next one can be `byroncos2.glb` (or `byron-hoodie.glb`, which shows as "Hoodie"). The ids are `draven`, `jacoby`, `eli`, `andrew` and `byron`. Steps 1–3 above still apply: the model needs a skeleton (rig it in Meshy, or upload it as is and ask Claude to rig it) and has to be under 25 MB. Hands, hats and Andrew's CGM fit themselves to every new model.
+
 **Voicelines:** drop audio clips into [`voicelines/<friend>/`](voicelines/README.md) named after when they should play (`victory.mp3`, `ko.mp3`, `nspecial.mp3`, ...). See [voicelines/README.md](voicelines/README.md) for the full list.
 
 ## Project layout
 
 ```
 shrink.html    model shrinker page (makes .glb files small enough for GitHub)
+public/models/ the friends' models (and outfits: <id>cos1.glb, ...) and Byron's Lambo
+public/stages/ photos used by stages (the Rushton Hall backdrop)
 voicelines/    voice clips per friend (see voicelines/README.md)
 tools/
   autorig.py   gives an un-rigged model a skeleton (run by Claude with Blender's Python module)
   slim.py      makes an already rigged model lighter (fewer triangles, smaller textures)
+  prep_lambo.py  turns the Sketchfab Aventador into Byron's game-ready Lambo
 src/
   main.js      menu, match flow, game loop (fixed 60 fps simulation)
   game.js      a single match: hit detection, stage collision, camera, KOs
@@ -210,10 +229,15 @@ src/
   characters/  per-friend movesets, poses, props and victory animations
   input.js     keyboard, gamepad and CPU controllers
   roster.js    the characters
-  stage.js     stage layout and cartoon scenery (toon shading, ink outlines, painted textures)
+  stages.js    the stage list (for the stage picker)
+  stage.js     Sky Island, plus the cartoon toolkit every stage uses (toon shading, ink outlines, painted textures)
+  stages/      other stages (rushton.js: Rushton Hall)
   view.js      fighter visuals (placeholder figure or loaded GLB model)
   poses.js     procedural poses for idle, jumping, attacks, getting hit
-  puppet.js    drives a rigged model's skeleton from those poses
+  puppet.js    drives a rigged model's skeleton from those poses (and closes the hands around props)
+  rig.js       measures each model's hands, body and head when it loads
+  cosmetics.js outfits and extras (hats, shades, chain) and putting them on
+  fonts.js     the game's fonts
   props.js     held props (bong, dab pen, magnifying glass, snacks, phone, insulin pen, earbuds, the Lambo...)
   shrink.js    the model shrinker (shrink.html)
   effects.js   hit sparks, KO blasts, vapor clouds, pop-up text, dirt and crumbs
@@ -222,9 +246,15 @@ src/
   voice.js     plays the voicelines
 ```
 
+## Credits
+
+- Fonts (all [SIL Open Font License](https://openfontlicense.org), bundled through [Fontsource](https://fontsource.org)): [Bangers](https://fonts.google.com/specimen/Bangers) by Vernon Adams, [Luckiest Guy](https://fonts.google.com/specimen/Luckiest+Guy) by Astigmatic, [Fredoka](https://fonts.google.com/specimen/Fredoka) by Milena Brandão.
+- Rushton Hall backdrop: a photo of the real building.
+- Byron's Lamborghini: ["Lamborghini Aventador SVJ SDC (FREE)"](https://sketchfab.com/3d-models/lamborghini-aventador-svj-sdc-free-784e4656aca649cca55d6b18740a19b2) by [SDC PERFORMANCE](https://sketchfab.com/Lambo_SC04), licensed [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Changed for the game: roof and side windows removed, simplified, recolored lights and trim, resized ([`tools/prep_lambo.py`](tools/prep_lambo.py)).
+
 ## Roadmap ideas
 
-- More stages (different people's dorm rooms)
+- More stages (different people's dorm rooms, other buildings on campus)
 - Items
 - Sound effects and music
 - Character select portraits taken from the scans

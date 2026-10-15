@@ -37,6 +37,8 @@ function setSugar(f, bg, world) {
   f.powerBonus = STATES[state].power;
 }
 
+const CGM_COLORS = { low: 0x4aa8ff, ok: 0x3ddc84, rush: 0xffd23f, spike: 0xff3b3b };
+
 // Insulin makes your blood sugar crash: slowed for a couple of seconds.
 function crash(v, world) {
   v.slowTimer = Math.max(v.slowTimer, 150);
@@ -69,6 +71,8 @@ export const ANDREW = {
   color: 0x2e86de,
   model: 'models/andrew.glb',
   props: { right: 'insulinPen' },
+  // His CGM on the back of his left arm; the light shows his blood sugar.
+  wear: [{ id: 'cgm', spot: 'lUpperArm', update: (cgm, f) => cgm.setColor(CGM_COLORS[f.charState.state ?? 'ok']) }],
   stats: { weight: 104, runSpeed: 7.6, airSpeed: 6.1, jump: 14.8, gravity: 39, maxFall: 14, power: 1.03, scale: 1.0 },
 
   // Blood sugar burns off as he fights; his speed and power follow it.

@@ -60,15 +60,23 @@ const LAMBO_COOLDOWN = 240; // frames after it crashes before he can call it aga
 const fast = (f) => f.move.speed >= 11;
 
 // The empty car after he bails (or gets knocked out of it): it rolls on,
-// slowing down, then wrecks.
+// slowing down, then blows up. The explosion hits everyone near it but him.
+const EXPLOSION = { r: 1.9, dmg: 13, base: 9, growth: 0.95, angle: 60 };
 const LOOSE_LAMBO = {
-  look: 'prop', prop: 'lambo', drive: true, gravity: 40, ride: 0.6, x: 0.25, y: 0, vy: 0, life: 75,
+  look: 'prop', prop: 'lambo', drive: true, gravity: 40, ride: 0.6, x: 0, y: 0, vy: 0, life: 75,
   r: 0.75, pierce: true, hitEvery: 40, dmg: 9, base: 7.5, growth: 0.8, angle: 45,
-  update(p) { p.vx *= 0.985; },
+  update(p, world) {
+    p.vx *= 0.985;
+    // About to blow: smoke pours out and it flashes.
+    if (p.life < 30 && p.age % 4 === 0) world.effects.puff(p.x - 0.8 * Math.sign(p.vx || 1), p.y + 0.9, 0.35, 0x45454c, 1.2);
+    if (p.life < 30) p.mesh.visible = p.life % 6 > 1;
+  },
   onEnd(p, world) {
-    world.effects.koBlast(p.x, p.y + 0.6, 0xffc400);
-    world.effects.puff(p.x, p.y + 0.8, 1.2, 0x555555, 1.5);
-    world.effects.text(p.x, p.y + 1.6, 'CRASH', '#ffc400', 0.5, 0.8);
+    const b = world.stage.blast;
+    if (p.y > b.bottom && p.x > b.left && p.x < b.right) {
+      world.effects.explosion(p.x, p.y, 1, 'KABOOM!');
+      world.blast(p.owner, p.x, p.y, EXPLOSION);
+    }
     p.owner.charState.lambo = null;
     p.owner.charState.lamboCooldown = LAMBO_COOLDOWN;
   },
@@ -98,14 +106,21 @@ export const BYRON = {
   color: 0x9be22d,
   model: 'models/byron.glb',
   props: { right: 'earbuds' },
+  preload: ['models/lambo.glb'], // his Lamborghini (see props.js)
   stats: { weight: 100, runSpeed: 7.8, airSpeed: 6.2, jump: 15, gravity: 40, maxFall: 14.5, power: 1.02, scale: 1.0 },
 
   update(f) {
     if (f.charState.lamboCooldown > 0) f.charState.lamboCooldown--;
   },
 
-  // HUD: the Lambo's ready (🏎️) or "in the shop" (🔧).
-  hud: (f) => (f.charState.lambo || f.charState.lamboCooldown > 0 ? '🎧 🔧' : '🎧 🏎️'),
+  // HUD: the Lambo's ready, out driving, about to blow, or in the shop (with a countdown).
+  hud: (f) => {
+    const cs = f.charState;
+    if (cs.lambo === 'riding') return '🎧 🏎️💨';
+    if (cs.lambo === 'loose') return '🎧 🏎️💥';
+    if (cs.lamboCooldown > 0) return `🎧 🔧 ${Math.ceil(cs.lamboCooldown / 60)}s`;
+    return '🎧 🏎️ READY';
+  },
 
   poses: {
     base: { rProp: 'upright' },
@@ -127,7 +142,7 @@ export const BYRON = {
     prop: { name: 'lambo', x: 0.9, z: -5.0, yaw: -0.3 },
     pose: (frame) => {
       const p = { ...victoryPose(frame) };
-      if (frame < 60) p.rHeld = 'carKeys';
+      p.rHeld = frame < 60 ? 'carKeys' : null; // keys (then everything) in his pocket to fold his arms
       return p;
     },
     onFrame(frame, { effects, x, y }) {
@@ -485,10 +500,13 @@ export const BYRON = {
       ],
       pose(frame, f) {
         const m = f.move;
+        // In a wheelie the car tips up around its rear axle, so he rides up and back with it.
+        const w = m.wheelie;
         const drive = {
-          mount: 'lambo', mountX: 0.25, mountPitch: m.wheelie ? 0.3 : 0,
-          crouch: 2.3, lean: m.wheelie ? -0.35 : -0.15, look: 0.05,
-          rThigh: [1, -0.05, 0.18], rShin: [1, -0.5, 0.12], lThigh: [1, -0.05, -0.18], lShin: [1, -0.5, -0.12],
+          mount: 'lambo', mountPitch: w ? 0.22 : 0,
+          crouch: w ? 1.2 : 2.3, lean: w ? -0.45 : -0.15, look: 0.05,
+          rThigh: [1, w ? 0.25 : -0.05, 0.18], rShin: [1, w ? -0.25 : -0.5, 0.12],
+          lThigh: [1, w ? 0.25 : -0.05, -0.18], lShin: [1, w ? -0.25 : -0.5, -0.12],
           rArm: [0.55, -0.7, 0.3], rFore: [0.95, 0.2, -0.15], lArm: [0.1, -0.5, -1], lFore: [0.3, -1, -0.3],
           rProp: 'upright',
         };

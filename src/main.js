@@ -1,3 +1,4 @@
+import { fontsReady } from './fonts.js';
 import * as THREE from 'three';
 import { Game } from './game.js';
 import { STEP } from './fighter.js';
@@ -5,6 +6,8 @@ import { ROSTER, SLOT_COLORS } from './roster.js';
 import { createController, consumeKey, endInputFrame, CONTROL_HELP } from './input.js';
 import { VictoryScene } from './victory.js';
 import { voice } from './voice.js';
+import { outfitsFor, ACCESSORIES } from './cosmetics.js';
+import { STAGES } from './stages.js';
 
 const canvas = document.getElementById('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -95,12 +98,39 @@ const CONTROL_OPTIONS = [
   ['cpu', 'CPU'],
 ];
 
+// Each player's pick: who's playing it, the character, and their cosmetics
+// (outfit and extra, as list positions). Remembered between visits.
 const slots = [
-  { control: 'kb1', char: 0 },
-  { control: 'cpu', char: 1 },
-  { control: 'off', char: 2 },
-  { control: 'off', char: 3 },
+  { control: 'kb1', char: 0, outfit: 0, extra: 0 },
+  { control: 'cpu', char: 1, outfit: 0, extra: 0 },
+  { control: 'off', char: 2, outfit: 0, extra: 0 },
+  { control: 'off', char: 3, outfit: 0, extra: 0 },
 ];
+try {
+  const saved = JSON.parse(store.get('brawl.slots', 'null'));
+  if (Array.isArray(saved)) saved.slice(0, 4).forEach((s, i) => Object.assign(slots[i], s));
+} catch { /* bad save: keep the defaults */ }
+for (const s of slots) {
+  if (!ROSTER[s.char]) s.char = 0;
+  if (!CONTROL_OPTIONS.some(([v]) => v === s.control)) s.control = 'off';
+}
+const saveSlots = () => store.set('brawl.slots', JSON.stringify(slots));
+
+// ---- Stage select ----
+let stageIndex = Math.max(0, STAGES.findIndex((s) => s.id === store.get('brawl.stage', STAGES[0].id)));
+function renderStage() {
+  const s = STAGES[stageIndex];
+  $('stage-name').textContent = s.name;
+  $('stage-thumb').style.background = s.thumb ?? '#333';
+  store.set('brawl.stage', s.id);
+}
+const stepStage = (d) => {
+  stageIndex = (stageIndex + d + STAGES.length) % STAGES.length;
+  renderStage();
+};
+$('stage-prev').onclick = () => stepStage(-1);
+$('stage-next').onclick = () => stepStage(1);
+$('stage-thumb').onclick = () => stepStage(1);
 
 function renderSlots() {
   const wrap = $('slots');
@@ -120,7 +150,13 @@ function renderSlots() {
         <button class="next" aria-label="Next character">▶</button>
       </div>
       <div class="slot-name"></div>
-      <div class="slot-tagline"></div>`;
+      <div class="slot-tagline"></div>
+      <div class="slot-look outfit" title="Outfits: any public/models/${c.id}*.glb file">
+        <button class="prev" aria-label="Previous outfit">‹</button><span></span><button class="next" aria-label="Next outfit">›</button>
+      </div>
+      <div class="slot-look extra">
+        <button class="prev" aria-label="Previous extra">‹</button><span></span><button class="next" aria-label="Next extra">›</button>
+      </div>`;
     card.querySelector('.slot-name').textContent = c.name;
     card.querySelector('.slot-tagline').textContent = c.tagline;
     const select = card.querySelector('select');
@@ -128,13 +164,34 @@ function renderSlots() {
     select.onchange = () => { slot.control = select.value; renderSlots(); };
     const cycle = (d) => {
       slot.char = (slot.char + d + ROSTER.length) % ROSTER.length;
+      slot.outfit = 0;
       renderSlots();
       voice.say(ROSTER[slot.char].id, 'select', { interrupt: true });
     };
-    card.querySelector('.prev').onclick = () => cycle(-1);
-    card.querySelector('.next').onclick = () => cycle(1);
+    card.querySelector('.slot-char .prev').onclick = () => cycle(-1);
+    card.querySelector('.slot-char .next').onclick = () => cycle(1);
+    // Cosmetics: outfit (other models of them) and an extra (hat, shades...).
+    const outfits = outfitsFor(c);
+    slot.outfit = Math.min(slot.outfit ?? 0, outfits.length - 1);
+    slot.extra = Math.min(slot.extra ?? 0, ACCESSORIES.length - 1);
+    const looks = [
+      ['.outfit', 'outfit', outfits, (o) => `👕 ${o.name}`],
+      ['.extra', 'extra', ACCESSORIES, (a) => `🧢 ${a.name}`],
+    ];
+    for (const [sel, key, list, label] of looks) {
+      const row = card.querySelector(sel);
+      row.querySelector('span').textContent = label(list[slot[key]]);
+      row.classList.toggle('single', list.length < 2);
+      const step = (d) => {
+        slot[key] = (slot[key] + d + list.length) % list.length;
+        renderSlots();
+      };
+      row.querySelector('.prev').onclick = () => step(-1);
+      row.querySelector('.next').onclick = () => step(1);
+    }
     wrap.appendChild(card);
   });
+  saveSlots();
   updateHint();
 }
 
@@ -174,6 +231,7 @@ function startMatch(setup = buildSetup()) {
   renderer.shadowMap.enabled = QUALITY[quality].shadows;
   game = new Game({
     renderer,
+    stage: setup.stage,
     stocks: setup.stocks,
     players: setup.players.map((p) => ({ ...p, controller: createController(p.control) })),
     onEnd: showResults,
@@ -188,9 +246,13 @@ function startMatch(setup = buildSetup()) {
 
 function buildSetup() {
   return {
+    stage: STAGES[stageIndex].id,
     stocks: Number($('stocks').value),
     players: slots
-      .map((s, i) => ({ slot: i, control: s.control, character: ROSTER[s.char] }))
+      .map((s, i) => ({
+        slot: i, control: s.control, character: ROSTER[s.char],
+        look: { model: outfitsFor(ROSTER[s.char])[s.outfit]?.model, accessory: ACCESSORIES[s.extra]?.id ?? null },
+      }))
       .filter((p) => p.control !== 'off'),
   };
 }
@@ -227,7 +289,8 @@ function setPaused(p) {
   show(p ? 'pause' : null);
 }
 
-$('start').onclick = () => startMatch();
+// Canvas text (bubbles, pop-ups) is drawn once and reused: make sure the fonts are in first.
+$('start').onclick = () => fontsReady.then(() => startMatch());
 $('rematch').onclick = () => startMatch(lastSetup);
 $('to-menu').onclick = toMenu;
 $('resume').onclick = () => setPaused(false);
@@ -279,10 +342,11 @@ function frame(now) {
 }
 
 renderSlots();
+renderStage();
 show('menu');
 applyQuality();
 updateFps();
 requestAnimationFrame(frame);
 
 // Handy for tweaking from the browser console.
-window.brawl = { get game() { return game; }, get victory() { return victory; }, ROSTER, showResults };
+window.brawl = { get game() { return game; }, get victory() { return victory; }, ROSTER, showResults, slots, startMatch, buildSetup };

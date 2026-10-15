@@ -26,11 +26,19 @@ const FIST_PUMP = {
   ]),
 };
 
-// The losers clap (on a loop).
-const CLAP_OPEN = { rArm: [0.6, -0.6, 0.45], rFore: [0.7, 0.55, -0.1], lArm: [0.6, -0.6, -0.45], lFore: [0.7, 0.55, 0.1] };
-const CLAP_SHUT = { rArm: [0.65, -0.6, 0.2], rFore: [0.65, 0.55, -0.55], lArm: [0.65, -0.6, -0.2], lFore: [0.65, 0.55, 0.55] };
+// The losers clap (on a loop), props put away. On rigged models the palms
+// reach for each other and meet in front of the chest.
+const CLAP_HANDS = { rHeld: null, lHeld: null, rHand: 'open', lHand: 'open', rPalm: [0.1, 0.1, -1], lPalm: [0.1, 0.1, 1] };
+const CLAP_OPEN = {
+  rArm: [0.6, -0.6, 0.45], rFore: [0.7, 0.55, -0.1], lArm: [0.6, -0.6, -0.45], lFore: [0.7, 0.55, 0.1],
+  rReach: [0.34, 1.22, 0.2], lReach: [0.34, 1.22, -0.2],
+};
+const CLAP_SHUT = {
+  rArm: [0.65, -0.6, 0.2], rFore: [0.65, 0.55, -0.55], lArm: [0.65, -0.6, -0.2], lFore: [0.65, 0.55, 0.55],
+  rReach: [0.36, 1.2, 0], lReach: [0.36, 1.2, 0],
+};
 const clap = keyframes([[0, CLAP_OPEN], [6, CLAP_SHUT], [12, CLAP_OPEN]]);
-const CLAP = { pose: (frame) => ({ ...REST, ...clap(frame % 12), look: 0.1 }) };
+const CLAP = { pose: (frame) => ({ ...REST, ...clap(frame % 12), ...CLAP_HANDS, look: 0.1 }) };
 
 const PODIUM = 0.5; // podium height
 // Where the winner and the others stand: [x, z, yaw toward the camera].
@@ -119,7 +127,7 @@ export class VictoryScene {
     }
 
     this.actors = ranked.slice(0, SPOTS.length).map((r, i) => {
-      const f = new Fighter({ slot: r.slot, character: r.character, controller: null, spawn: { x: 0, y: 0 }, stocks: 1 });
+      const f = new Fighter({ slot: r.slot, character: r.character, controller: null, spawn: { x: 0, y: 0 }, stocks: 1, look: r.look });
       const [x, z, yaw] = SPOTS[i];
       f.x = x;
       f.y = i === 0 ? PODIUM : 0;

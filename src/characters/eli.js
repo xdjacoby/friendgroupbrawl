@@ -3,22 +3,94 @@ import { REST as GUARD_REST, GRABS } from '../moves.js';
 
 // Eli: chronically online. Built like Velma from MultiVersus: he shouts
 // speech bubbles (TikTok brainrot) for his neutral special, charges up a
-// sprint (the Griddy) for his side special, spills something on the floor
-// and jumps off it for his up special, and builds up a meter by landing his
+// sprint (the Griddy) for his side special, rides a Subway Surfers
+// hoverboard for his up special, and builds up a meter by landing his
 // specials. Velma collects evidence until a van comes to take someone away;
 // Eli builds clout until he can call the FBI.
 // Frame data format: see src/moves.js. Poses: see src/poses.js.
 
-// Neutral special: one bubble per press, in this order. Each flies its own way.
+// ---- Brainrot ----
+// Every bubble that hits someone gives them a stack of brainrot (it wears off
+// after a few seconds without a new one). Three stacks and they're
+// BRAINROTTED: left and right swap for a few seconds.
+const ROT_STACKS = 3;
+const ROT_FRAMES = 180; // how long the controls stay swapped
+const ROT_KEEP = 480; // stacks wear off this long after the last one
+
+function brainrot(v, eli, world) {
+  const st = v.status;
+  const prev = st.brainrot && world.frame - st.brainrot.at < ROT_KEEP ? st.brainrot.stacks : 0;
+  const stacks = prev + 1;
+  if (stacks >= ROT_STACKS) {
+    st.brainrot = null;
+    v.confused = ROT_FRAMES;
+    world.effects.popBubble(v.x, v.y + v.h + 0.9, 'BRAINROTTED', '#a259ff', 0.45, 1.3);
+    gainClout(eli, 15, world);
+    return;
+  }
+  st.brainrot = { stacks, at: world.frame };
+  world.effects.text(v.x + 0.3, v.y + v.h + 0.35, `ROT ${stacks}/${ROT_STACKS}`, '#c08bff', 0.3, 0.7);
+}
+
+// Bubbles can be aimed: they carry on along vy (set when he shouts, from up/down held).
+const drift = (p) => { p.y += p.vy / 60; };
+
+// GUCCI MORTY swallows other people's shots (and clouds) that touch it.
+function gucciEats(p, world) {
+  drift(p);
+  for (const q of world.liveProjectiles ?? []) {
+    if (q === p || q.owner === p.owner || q.life <= 0 || q.hb.drive || q.hb.flat) continue;
+    if (Math.hypot(q.x - p.x, q.y - p.y) > p.r + q.r * 0.7) continue;
+    q.life = 0;
+    world.effects.puff(q.x, q.y, 0.4, 0x2bd96b, 0.3);
+    world.effects.text(p.x, p.y + p.r + 0.3, 'GUCCI\'D', '#2bd96b', 0.3, 0.6);
+  }
+}
+
+// KIRK bursts into three little kirks when it ends (hit or not).
+function kirkSplit(p, world) {
+  const b = world.stage.blast;
+  if (p.y < b.bottom || p.x < b.left || p.x > b.right || p.hb.mini) return;
+  const dir = Math.sign(p.vx) || p.owner.facing;
+  for (const a of [-0.6, 0, 0.6]) {
+    const q = world.spawnProjectile(p.owner, MINI_KIRK);
+    q.x = p.x;
+    q.y = q.baseY = p.y;
+    q.vx = Math.cos(a) * 9 * dir;
+    q.vy = Math.sin(a) * 9;
+  }
+}
+const MINI_KIRK = {
+  look: 'bubble', text: 'kirk', color: '#ffb31f', speed: 0, life: 24, r: 0.26, dmg: 3, base: 4, growth: 0.2, angle: 50,
+  mini: true, update: drift,
+};
+
+// FUNKY EHH wobbles out, then turns around and flies back to him like a
+// boomerang (hitting again on the way back). He catches it.
+function boomerang(p, world) {
+  p.baseY += p.vy / 60;
+  p.y = p.baseY + Math.sin(p.age * 0.18) * 0.55;
+  if (p.age < 26) return;
+  const o = p.owner;
+  const dx = o.x - p.x;
+  p.vx = Math.max(-11, Math.min(11, p.vx + Math.sign(dx) * 0.75));
+  p.baseY += (o.y + 1.5 - p.baseY) * 0.04;
+  if (p.age > 40 && Math.abs(dx) < 0.7 && Math.abs(o.y + 1.2 - p.y) < 1.2 && !o.dead) {
+    p.life = 0;
+    world.effects.sparkle(o.x, o.y + 1.4, 0xa259ff, 4, 0.5);
+  }
+}
+
+// Neutral special: one bubble per press, in this order. Each one does its own thing.
 const PHRASES = [
   // Fast and straight.
-  { text: 'NEEGY', color: '#ff2d6f', speed: 14, life: 50, r: 0.36, dmg: 5, base: 4.5, growth: 0.35, angle: 30 },
-  // Big, slow and lingering: hits a few times.
-  { text: 'GUCCI MORTY', color: '#2bd96b', speed: 4.5, drag: 0.012, life: 120, r: 0.62, pierce: true, hitEvery: 20, dmg: 2.5, base: 3.5, growth: 0.12, angle: 55 },
-  // Short range, but it bonks.
-  { text: 'KIRK', color: '#ffb31f', speed: 9.5, drag: 0.07, life: 38, r: 0.55, dmg: 9, base: 7.5, growth: 0.8, angle: 40 },
-  // Wobbles up and down on its way.
-  { text: 'FUNKY EHH', color: '#a259ff', speed: 8, life: 85, r: 0.45, dmg: 6, base: 5.5, growth: 0.5, angle: 60, update: (p) => { p.y = p.baseY + Math.sin(p.age * 0.18) * 0.7; } },
+  { text: 'NEEGY', color: '#ff2d6f', speed: 15, life: 48, r: 0.36, dmg: 5, base: 4.5, growth: 0.35, angle: 30, update: drift },
+  // Big, slow and lingering: hits a few times, and eats other people's projectiles.
+  { text: 'GUCCI MORTY', color: '#2bd96b', speed: 4.5, drag: 0.012, life: 130, r: 0.62, pierce: true, hitEvery: 20, dmg: 2.5, base: 3.5, growth: 0.12, angle: 55, update: gucciEats },
+  // Short range, but it bonks, then bursts into three little kirks.
+  { text: 'KIRK', color: '#ffb31f', speed: 9.5, drag: 0.07, life: 34, r: 0.55, dmg: 8, base: 7.5, growth: 0.75, angle: 40, update: drift, onEnd: kirkSplit },
+  // Wobbles out and boomerangs back.
+  { text: 'FUNKY EHH', color: '#a259ff', speed: 9, life: 110, r: 0.45, pierce: true, hitEvery: 30, dmg: 5, base: 5, growth: 0.45, angle: 60, update: boomerang },
 ];
 
 // Words that float up off his phone while he doomscrolls.
@@ -74,24 +146,19 @@ const FBI_VAN = {
   },
 };
 
-const PRIME_PUDDLE = {
-  look: 'puddle', color: 0x3df5ff, x: 0.3, y: 0, speed: 0, life: 300, r: 1.3, flat: true,
-  pierce: true, hitEvery: 15, dmg: 1, noKnockback: true, slow: 25, unique: 'prime',
-  // Standing in it for a second gets you stuck to the floor for a moment.
-  onHit(p, v, world) {
-    p.stuck ??= new Map();
-    const s = p.stuck.get(v);
-    const n = s && p.age - s.at < 20 ? s.n + 1 : 1;
-    p.stuck.set(v, { n, at: p.age });
-    if (n < 4 || !v.grounded || v.hitstun > 0 || v.heldBy || v.holding) return;
-    p.stuck.set(v, { n: 0, at: p.age });
-    v.interruptMove(world);
-    v.hitstun = 50;
-    v.vx = v.kbx = 0;
-    world.effects.text(v.x, v.y + v.h + 0.4, 'STUCK!', '#3df5ff', 0.45, 0.9);
-    gainClout(p.owner, 10, world);
-  },
-};
+// Up special: the hoverboard ride.
+const SURF_START = 7; // frame he takes off
+const SURF_END = 33; // last frame of the ride
+const SURF_SPEED = 11.5;
+const SURF_TURN = 0.07; // radians per frame he can steer
+
+// Never take off much downward (and always upward from the ground).
+function takeoffAngle(a, grounded) {
+  if (grounded) return a < 0 ? (Math.cos(a) >= 0 ? 0.35 : Math.PI - 0.35) : Math.max(0.35, Math.min(Math.PI - 0.35, a));
+  if (a < -0.4 && a >= -Math.PI / 2) return -0.4;
+  if (a < -Math.PI / 2 && a > -Math.PI + 0.4) return -Math.PI + 0.4;
+  return a;
+}
 
 export const ELI = {
   id: 'eli',
@@ -368,8 +435,11 @@ export const ELI = {
     // ---- Specials ----
 
     // NEUTRAL SPECIAL - Brainrot: cups a hand to his mouth and shouts a speech
-    // bubble: NEEGY (fast), GUCCI MORTY (big, slow, hits a few times), KIRK
-    // (short, bonks hard), FUNKY EHH (wobbles), in that order. Bubble hits build clout.
+    // bubble, in this order: NEEGY (fast), GUCCI MORTY (big and slow, hits a
+    // few times, eats other people's projectiles), KIRK (short, bonks hard,
+    // bursts into three little kirks), FUNKY EHH (wobbles out and boomerangs
+    // back). Hold up or down to aim it. Every hit builds clout and a stack of
+    // brainrot: three stacks and their left and right swap for a few seconds.
     nspecial: {
       total: 30, limb: 'arm',
       onFrame(f, frame, input, world) {
@@ -377,9 +447,19 @@ export const ELI = {
         const st = f.charState;
         const i = st.phrase ?? 0;
         st.phrase = (i + 1) % PHRASES.length;
+        const def = PHRASES[i];
+        const aim = input.y > 0.5 ? 1 : input.y < -0.5 ? -1 : 0;
+        const rotted = new Set(); // one stack per bubble, however many times it hits
         world.spawnProjectile(f, {
-          look: 'bubble', x: 0.75, y: 1.85, ...PHRASES[i],
-          onHit: (p, v, w) => gainClout(p.owner, CLOUT_BUBBLE, w),
+          look: 'bubble', x: 0.75, y: 1.85, ...def, vy: aim * def.speed * 0.45,
+          onHit: (p, v, w, result) => {
+            if (p.owner !== f) return; // parried back at him: no clout for that
+            gainClout(f, CLOUT_BUBBLE, w);
+            if (result === 'hit' && !rotted.has(v)) {
+              rotted.add(v);
+              brainrot(v, f, w);
+            }
+          },
         });
       },
       hitboxes: [],
@@ -436,34 +516,65 @@ export const ELI = {
       },
     },
 
-    // UP SPECIAL - Prime Time: spills a bottle of Prime on the floor and rides
-    // the energy up. The puddle stays for a few seconds: it slows anyone in
-    // it, and standing in it too long sticks them to the floor. No puddle in the air.
+    // UP SPECIAL - Subway Surfers: pulls out a hoverboard and surfs off in
+    // whatever direction you hold (straight up if you don't), steering as he
+    // goes, leaving a trail of coins. Hits on takeoff and along the way. His recovery.
     uspecial: {
-      total: 40, limb: 'arm', scripted: true, helplessAfter: true, landingLag: 16, ledgeGrab: true,
+      total: SURF_END + 14, limb: 'leg', scripted: true, helplessAfter: true, landingLag: 14, ledgeGrab: true,
+      onStart(f) {
+        f.move.dir = null;
+        f.fastFalling = false;
+      },
       onFrame(f, frame, input, world) {
-        if (frame < 9) {
-          f.vx *= 0.85;
-          if (!f.grounded) f.vy = Math.max(f.vy, -1.5);
-          if (frame === 6 && f.grounded) world.spawnProjectile(f, PRIME_PUDDLE);
+        const m = f.move;
+        if (frame < SURF_START) {
+          f.vx *= 0.8;
+          f.vy = Math.max(f.vy, 0) * 0.7;
+          if (frame === 2) world.effects.text(f.x, f.y + f.h + 0.5, 'SUBWAY SURFERS', '#ffd23f', 0.36, 0.8);
           return;
         }
-        if (frame === 9) world.effects.text(f.x, f.y + f.h + 0.5, 'PRIME TIME', '#3df5ff', 0.4, 0.7);
-        if (frame <= 24) {
+        if (!m.dir) {
+          // Takeoff: the held direction (never much downward), or straight up.
+          const len = Math.hypot(input.x, input.y);
+          m.angle = takeoffAngle(len > 0.3 ? Math.atan2(input.y, input.x) : Math.PI / 2, f.grounded);
+          m.dir = true;
           f.grounded = false;
           f.platform = null;
-          f.vy = 16.5;
-          f.vx = (input.x || 0) * 4.2;
-          if (frame % 2) world.effects.sparkle(f.x, f.y + 0.3, 0x3df5ff, 2, 0.5);
+          world.effects.puff(f.x, f.y + 0.1, 0.5, 0x7ef9ff, 0);
+        }
+        if (frame <= SURF_END) {
+          // Steer toward the stick a little each frame.
+          if (Math.hypot(input.x, input.y) > 0.3) {
+            const want = Math.atan2(input.y, input.x);
+            let d = want - m.angle;
+            d = Math.atan2(Math.sin(d), Math.cos(d));
+            m.angle += Math.max(-SURF_TURN, Math.min(SURF_TURN, d));
+          }
+          const cx = Math.cos(m.angle);
+          if (Math.abs(cx) > 0.25) f.facing = Math.sign(cx);
+          f.vx = cx * SURF_SPEED;
+          f.vy = Math.sin(m.angle) * SURF_SPEED;
+          if (frame % 2) world.effects.sparkle(f.x - cx * 0.6, f.y - Math.sin(m.angle) * 0.6, 0xffd23f, 2, 0.35);
+        } else {
+          f.vx *= 0.9;
+          f.vy = Math.max(f.vy - 0.9, -8);
         }
       },
       hitboxes: [
-        { start: 9, end: 14, x: 0.2, y: 1.2, r: 0.7, dmg: 6, base: 7, growth: 0.5, angle: 80, group: 0 },
-        { start: 15, end: 22, x: 0.25, y: 2.0, r: 0.6, dmg: 5, base: 7.5, growth: 0.7, angle: 85, group: 1 },
+        { start: SURF_START, end: SURF_START + 6, x: 0.3, y: 0.4, r: 0.75, dmg: 8, base: 7.5, growth: 0.65, angle: 70, group: 0 },
+        { start: SURF_START + 7, end: SURF_END, x: 0.35, y: 0.3, r: 0.6, dmg: 4, base: 6, growth: 0.45, angle: 60, group: 1 },
       ],
-      pose(frame) {
-        const p = { ...primePose(frame) };
-        if (frame >= 2 && frame < 9) p.lHeld = 'prime';
+      pose(frame, f) {
+        const m = f.move;
+        const p = { ...surfPose(frame) };
+        if (frame >= 3 && frame <= SURF_END + 4) {
+          p.mount = 'hoverboard';
+          // Tip the board (and him) with the way he's flying.
+          if (m.angle !== undefined && frame >= SURF_START) {
+            const fwd = Math.cos(m.angle) * f.facing;
+            p.pitch = Math.max(-0.5, Math.min(0.75, Math.atan2(Math.sin(m.angle), Math.abs(fwd) + 0.35) * 0.6));
+          }
+        }
         return p;
       },
     },
@@ -538,14 +649,16 @@ const uairPose = keyframes([
   [26, REST],
 ]);
 
-const primePose = keyframes([
+// Surfing stance on the board: knees bent, feet apart, arms out for balance.
+const SURF = {
+  rThigh: [0.55, -0.85, 0.12], rShin: [-0.1, -1, 0.1], lThigh: [-0.45, -0.9, -0.12], lShin: [-0.35, -0.95, -0.1],
+  rArm: [0.55, -0.15, 0.85], rFore: [0.6, 0.15, 0.75], lArm: [-0.6, -0.1, -0.8], lFore: [-0.7, 0.2, -0.6],
+  crouch: 0.55, lean: 0.25, look: 0.1, rProp: 'club', rHand: 'grip', lHand: 'open',
+};
+const surfPose = keyframes([
   [0, REST],
-  [3, { lArm: [0.5, -0.7, -0.3], lFore: [0.7, 0.6, -0.2], lProp: 'upright' }],
-  [6, { lFore: [0.6, -0.6, -0.3], look: -0.25 }],
-  [9, {
-    rArm: [0.2, 1, 0.4], rFore: [0.1, 1, 0.2], lArm: [0.2, 1, -0.4], lFore: [0.1, 1, -0.2], look: 0.4,
-    rThigh: [0.4, -0.9, 0.15], rShin: [-0.3, -1, 0.1], lThigh: [0.1, -1, -0.15], lShin: [-0.2, -1, -0.1],
-  }],
-  [24, {}],
-  [38, { rArm: [-0.1, 1, 0.5], rFore: [-0.1, 1, 0.3], lArm: [-0.1, 1, -0.5], lFore: [-0.1, 1, -0.3], look: 0.3 }],
+  [4, { ...SURF, crouch: 0.9, lean: 0.4 }],
+  [SURF_START, SURF],
+  [SURF_END, {}],
+  [SURF_END + 8, { rArm: [-0.1, 1, 0.5], rFore: [-0.1, 1, 0.3], lArm: [-0.1, 1, -0.5], lFore: [-0.1, 1, -0.3], look: 0.3, crouch: 0, lean: 0 }],
 ]);

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry as RoundedBox } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { loadModel } from './models.js';
+import { FONTS } from './fonts.js';
 
 // Held props. Each is built with the grip at the origin and the "business end"
 // pointing down -y, so 'club' mode can line -y up with the forearm. +x is the
@@ -54,7 +56,7 @@ function dabPen() {
   const button = part(new THREE.SphereGeometry(0.014, 8, 6), led, 0.08, group);
   button.position.z = 0.024;
   part(new THREE.CylinderGeometry(0.027, 0.027, 0.012, 12), led, 0.11, group); // light ring
-  group.scale.setScalar(1.4); // chunky enough to read at gameplay distance
+  group.scale.setScalar(1.2); // a bit chunky so it reads at gameplay distance
 
   return {
     object: group,
@@ -84,7 +86,7 @@ function magnifyingGlass() {
   const glint = part(new THREE.PlaneGeometry(0.018, 0.09), shine, -0.15, group);
   glint.position.set(-0.03, -0.15, 0.006);
   glint.rotation.z = -0.6;
-  group.scale.setScalar(1.5); // chunky enough to read at gameplay distance
+  group.scale.setScalar(1.35); // a bit chunky so it reads at gameplay distance
   return { object: group, setGlow() {} };
 }
 
@@ -92,7 +94,7 @@ function magnifyingGlass() {
 
 function chips() {
   const group = new THREE.Group();
-  group.scale.setScalar(1.5); // cartoon-sized so it reads at gameplay distance
+  group.scale.setScalar(1.25); // a bit big so it reads at gameplay distance
   const bag = new THREE.MeshStandardMaterial({ color: 0xe23b2e, roughness: 0.35, metalness: 0.3 });
   const label = new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.5 });
   const crimp = new THREE.MeshStandardMaterial({ color: 0xcfd6de, roughness: 0.3, metalness: 0.6 });
@@ -105,7 +107,7 @@ function chips() {
 
 function cookie() {
   const group = new THREE.Group();
-  group.scale.setScalar(1.5); // cartoon-sized so it reads at gameplay distance
+  group.scale.setScalar(1.25); // a bit big so it reads at gameplay distance
   const dough = new THREE.MeshStandardMaterial({ color: 0xd9a05b, roughness: 0.9 });
   const choc = new THREE.MeshStandardMaterial({ color: 0x4a2a14, roughness: 0.7 });
   part(new THREE.CylinderGeometry(0.075, 0.075, 0.022, 20).rotateX(Math.PI / 2), dough, 0.06, group);
@@ -120,7 +122,7 @@ function cookie() {
 
 function donut() {
   const group = new THREE.Group();
-  group.scale.setScalar(1.5); // cartoon-sized so it reads at gameplay distance
+  group.scale.setScalar(1.25); // a bit big so it reads at gameplay distance
   const dough = new THREE.MeshStandardMaterial({ color: 0xd49a5a, roughness: 0.8 });
   const icing = new THREE.MeshStandardMaterial({ color: 0xff7eb6, roughness: 0.4 });
   part(new THREE.TorusGeometry(0.055, 0.03, 12, 24), dough, 0.07, group);
@@ -141,7 +143,7 @@ function donut() {
 
 function pizza() {
   const group = new THREE.Group();
-  group.scale.setScalar(1.5); // cartoon-sized so it reads at gameplay distance
+  group.scale.setScalar(1.25); // a bit big so it reads at gameplay distance
   const cheese = new THREE.MeshStandardMaterial({ color: 0xffcf4a, roughness: 0.6 });
   const crust = new THREE.MeshStandardMaterial({ color: 0xc9853e, roughness: 0.9 });
   const pepperoni = new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.6 });
@@ -203,7 +205,7 @@ function phone() {
   back.rotation.y = Math.PI;
   const cam = part(new THREE.SphereGeometry(0.009, 8, 6), lens, -0.115, group);
   cam.position.z = -0.008;
-  group.scale.setScalar(1.6);
+  group.scale.setScalar(1.12); // a big phone, but a phone
   return {
     object: group,
     setGlow(v) {
@@ -229,20 +231,6 @@ function selfieStick() {
   return { object: group, setGlow() {} };
 }
 
-// A bottle of Prime (his up special spills it).
-function prime() {
-  const group = new THREE.Group();
-  const bottle = new THREE.MeshStandardMaterial({ color: 0x3df5ff, roughness: 0.25, transparent: true, opacity: 0.9 });
-  const label = new THREE.MeshStandardMaterial({ color: 0xff3fb4, roughness: 0.5 });
-  const cap = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
-  part(new THREE.CylinderGeometry(0.04, 0.042, 0.17, 14), bottle, 0.09, group);
-  part(new THREE.CylinderGeometry(0.043, 0.043, 0.07, 14), label, 0.09, group);
-  part(new THREE.CylinderGeometry(0.022, 0.04, 0.04, 14), bottle, 0.195, group);
-  part(new THREE.CylinderGeometry(0.023, 0.023, 0.03, 12), cap, 0.225, group);
-  group.scale.setScalar(1.5);
-  return { object: group, setGlow() {} };
-}
-
 // ---- Andrew ----
 
 // Insulin pen: blue body, a little window on the cartridge, orange dose dial
@@ -259,7 +247,7 @@ function insulinPen() {
   part(new THREE.CylinderGeometry(0.019, 0.019, 0.06, 12), glass, -0.09, group); // cartridge window
   part(new THREE.CylinderGeometry(0.016, 0.019, 0.025, 12), white, -0.13, group);
   part(new THREE.CylinderGeometry(0.0025, 0.0025, 0.05, 6), steel, -0.165, group); // needle
-  group.scale.setScalar(1.6);
+  group.scale.setScalar(0.8); // ~24 cm: a real pen is ~17
   return { object: group, setGlow(v) { dial.emissive.setRGB(0.6 * v, 0.25 * v, 0); } };
 }
 
@@ -276,7 +264,7 @@ function juiceBox() {
   const s2 = part(new THREE.CylinderGeometry(0.005, 0.005, 0.04, 6), straw, 0.185, group);
   s2.position.x = 0.035;
   s2.rotation.z = -0.9;
-  group.scale.setScalar(1.6);
+  group.scale.setScalar(1.25);
   return { object: group, setGlow() {} };
 }
 
@@ -305,7 +293,7 @@ function glucoseMeter() {
   part(new THREE.BoxGeometry(0.06, 0.1, 0.022), shell, 0.05, group);
   part(new THREE.PlaneGeometry(0.045, 0.035), screen, 0.065, group).position.z = 0.012;
   part(new THREE.BoxGeometry(0.012, 0.04, 0.002), strip, 0.115, group);
-  group.scale.setScalar(1.7);
+  group.scale.setScalar(1.25);
   return { object: group, setGlow() {} };
 }
 
@@ -328,7 +316,7 @@ function earbuds() {
     const tip = part(new THREE.SphereGeometry(0.018, 8, 6), grey, -0.16, end);
     tip.position.x = side * 0.05;
   }
-  end.scale.setScalar(1.5);
+  end.scale.setScalar(1.2);
   const set = (v) => {
     const len = 0.25 + 3.6 * v;
     cord.scale.y = len;
@@ -347,7 +335,7 @@ function carKeys() {
   part(new THREE.TorusGeometry(0.025, 0.004, 6, 16), ring, -0.025, group);
   part(new THREE.BoxGeometry(0.035, 0.06, 0.016), fob, -0.08, group);
   part(new THREE.CircleGeometry(0.01, 6), badge, -0.075, group).position.z = 0.009;
-  group.scale.setScalar(1.8);
+  group.scale.setScalar(1.4);
   return { object: group, setGlow() {} };
 }
 
@@ -373,9 +361,47 @@ function wheels(group, spots, r, width) {
   return (dist) => { for (const w of list) w.rotation.z -= dist / r; };
 }
 
-// Byron's Lamborghini (a roadster, so you can see him driving it). Sits on
-// the ground at the origin, nose toward +x.
+// Byron's Lamborghini: an Aventador SVJ (public/models/lambo.glb, made from a
+// Sketchfab model by tools/prep_lambo.py: roof cut off so you can see him
+// driving, seat at the origin, nose toward +x). The cartoon car below stands
+// in until it loads, or if the file is missing.
 function lambo() {
+  const group = new THREE.Group();
+  const stand = cartoonLambo();
+  stand.object.position.x = 0.25; // its cockpit over the seat
+  group.add(stand.object);
+  let wheels = [];
+  let rollStand = stand.roll;
+  loadModel('models/lambo.glb').then((gltf) => {
+    if (!gltf) return;
+    const car = gltf.scene.clone();
+    car.traverse((o) => {
+      o.userData.cached = true; // geometry and textures are shared with the cache
+      if (!o.isMesh) return;
+      o.castShadow = true;
+      // Its own materials, showing both sides now that the roof is gone.
+      o.material = o.material.clone();
+      o.material.side = THREE.DoubleSide;
+    });
+    wheels = ['wheel_fl', 'wheel_fr', 'wheel_rear'].map((n) => car.getObjectByName(n)).filter(Boolean);
+    group.remove(stand.object);
+    group.add(car);
+    rollStand = null;
+  });
+  return {
+    object: group,
+    setGlow() {},
+    pivot: [-1.0, 0.25], // rear axle: wheelies tip up around it
+    roll(dist) {
+      rollStand?.(dist);
+      for (const w of wheels) w.rotation.z -= dist / 0.25; // wheel radius 0.25 m
+    },
+  };
+}
+
+// The cartoon Lambo (a roadster, so you can see him driving it). Sits on the
+// ground at the origin, nose toward +x.
+function cartoonLambo() {
   const group = new THREE.Group();
   const paint = new THREE.MeshStandardMaterial({ color: 0xffc400, roughness: 0.25, metalness: 0.2 });
   const black = new THREE.MeshStandardMaterial({ color: 0x18181d, roughness: 0.5 });
@@ -429,6 +455,62 @@ function lambo() {
   return { object: group, setGlow() {}, roll };
 }
 
+// Eli's hoverboard (Subway Surfers): a graffiti deck with kicked-up ends and
+// two jets underneath. Ridden at his feet (pose.mount); `setGlow` fires the jets.
+function hoverboard() {
+  const group = new THREE.Group();
+  const top = new THREE.CanvasTexture((() => {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 64;
+    const ctx = c.getContext('2d');
+    const g = ctx.createLinearGradient(0, 0, 256, 0);
+    g.addColorStop(0, '#ff2d6f');
+    g.addColorStop(0.5, '#ffd23f');
+    g.addColorStop(1, '#25f4ee');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 256, 64);
+    ctx.fillStyle = '#1d1630';
+    for (let i = 0; i < 6; i++) ctx.fillRect(20 + i * 40, 0, 10, 64);
+    return c;
+  })());
+  top.colorSpace = THREE.SRGBColorSpace;
+  const deckMat = new THREE.MeshStandardMaterial({ map: top, roughness: 0.4 });
+  const under = new THREE.MeshStandardMaterial({ color: 0x23254f, roughness: 0.5 });
+  const deck = new THREE.Mesh(new RoundedBox(0.95, 0.06, 0.34, 2, 0.025), [under, under, deckMat, under, under, under]);
+  deck.position.y = -0.03;
+  deck.castShadow = true;
+  group.add(deck);
+  for (const side of [-1, 1]) {
+    const kick = new THREE.Mesh(new RoundedBox(0.18, 0.05, 0.32, 2, 0.02), under);
+    kick.position.set(side * 0.53, 0.0, 0);
+    kick.rotation.z = side * 0.45;
+    group.add(kick);
+  }
+  const jetMat = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: 0.3, metalness: 0.6 });
+  const flame = new THREE.MeshBasicMaterial({ color: 0x7ef9ff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
+  const flames = [];
+  for (const x of [-0.25, 0.25]) {
+    const jet = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.08, 10), jetMat);
+    jet.position.set(x, -0.1, 0);
+    group.add(jet);
+    const f = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.3, 10).translate(0, -0.15, 0).rotateZ(Math.PI), flame);
+    f.rotation.z = Math.PI;
+    f.position.set(x, -0.14, 0);
+    group.add(f);
+    flames.push(f);
+  }
+  let t = 0;
+  return {
+    object: group,
+    setGlow() {},
+    roll(dist) {
+      t += 0.2 + dist;
+      for (const f of flames) f.scale.set(1, 0.7 + Math.sin(t * 7 + f.position.x * 9) * 0.25 + Math.min(1, dist * 8) * 0.6, 1);
+    },
+  };
+}
+
 // The FBI van that answers Eli's call. Black, "FBI" down the side, light bar.
 function fbiVan() {
   const group = new THREE.Group();
@@ -451,7 +533,7 @@ function fbiVan() {
   label.width = 512;
   label.height = 160;
   const ctx = label.getContext('2d');
-  ctx.font = '900 130px Impact, "Arial Black", sans-serif';
+  ctx.font = `150px ${FONTS.display}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffd400';
@@ -488,8 +570,36 @@ function fbiVan() {
 
 const MAKERS = {
   bong, dabPen, magnifyingGlass, chips, cookie, donut, pizza, chipBag,
-  phone, selfieStick, prime, insulinPen, juiceBox, bread, glucoseMeter, earbuds, carKeys, lambo, fbiVan,
+  phone, selfieStick, insulinPen, juiceBox, bread, glucoseMeter, earbuds, carKeys, lambo, fbiVan, hoverboard,
 };
+
+// How a hand holds each prop (rigged models close their fingers around it):
+//   style  'fist' wraps a handle; 'palm' lays a flat thing (a phone) on the palm
+//   r      handle radius in meters (or half the thickness for 'palm'); fingers close tighter on thin ones
+//   y      where along the prop the hand goes (meters up its axis from the origin)
+//   clear  false: don't tip it away from the body (cords, tiny things)
+const GRIPS = {
+  bong: { style: 'fist', r: 0.042, y: -0.02 },
+  dabPen: { style: 'fist', r: 0.03, y: 0.03 },
+  magnifyingGlass: { style: 'fist', r: 0.03, y: 0.04 },
+  chips: { style: 'palm', r: 0.04, y: 0.07 },
+  cookie: { style: 'palm', r: 0.015, y: 0.075 },
+  donut: { style: 'palm', r: 0.03, y: 0.085 },
+  pizza: { style: 'palm', r: 0.012, y: 0.12 },
+  chipBag: { style: 'fist', r: 0.03, y: 0.03 },
+  phone: { style: 'palm', r: 0.007, y: -0.07 },
+  selfieStick: { style: 'fist', r: 0.018, y: 0, clear: false },
+  insulinPen: { style: 'fist', r: 0.017, y: 0.02 },
+  juiceBox: { style: 'fist', r: 0.035, y: 0.07 },
+  bread: { style: 'fist', r: 0.055, y: -0.06 },
+  glucoseMeter: { style: 'palm', r: 0.014, y: 0.06 },
+  earbuds: { style: 'fist', r: 0.012, y: 0, clear: false },
+  carKeys: { style: 'fist', r: 0.014, y: -0.04, clear: false },
+};
+
+const _box = new THREE.Box3();
+const _v = new THREE.Vector3();
+const PROFILE_BINS = 6;
 
 export function createProp(name) {
   const make = MAKERS[name];
@@ -497,5 +607,26 @@ export function createProp(name) {
     console.warn(`Unknown prop "${name}"`);
     return null;
   }
-  return make();
+  const prop = make();
+  prop.grip = GRIPS[name] ?? null;
+  if (prop.grip) {
+    // How thick it is along its length, so the puppet can keep it out of the
+    // body (a bong's thin neck can sit by the chest, its base can't).
+    prop.object.updateMatrixWorld(true);
+    _box.setFromObject(prop.object);
+    const top = _box.max.y;
+    const bottom = _box.min.y;
+    const profile = new Array(PROFILE_BINS).fill(0);
+    prop.object.traverse((o) => {
+      if (!o.isMesh) return;
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        _v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+        const bin = Math.min(PROFILE_BINS - 1, Math.max(0, Math.floor(((_v.y - bottom) / (top - bottom || 1)) * PROFILE_BINS)));
+        profile[bin] = Math.max(profile[bin], Math.hypot(_v.x, _v.z));
+      }
+    });
+    prop.extent = { top, bottom, profile };
+  }
+  return prop;
 }
