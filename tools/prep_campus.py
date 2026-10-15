@@ -15,7 +15,9 @@ all it needs from the file is the shapes:
 - each tree's spot, height and canopy size.
 
 Coordinates are rounded to decimeters (ints) to keep the file small.
-Only numpy is needed.
+Only numpy is needed. The draft's ground is flat and its building heights
+are made up: run tools/prep_terrain.py on the output next (real terrain,
+heights, trees and countryside from survey data).
 """
 import json
 import sys

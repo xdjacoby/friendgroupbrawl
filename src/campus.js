@@ -151,6 +151,107 @@ function edgeDistance(x, z, pts) {
   return best;
 }
 
+// ---- Terrain ----
+// tools/prep_terrain.py stores heights as grids (decimeters above the datum,
+// base64 int16): `terrain` under campus (4 m), `region` out to 4 km (40 m),
+// `far` out to 40 km (800 m). heightAt() takes the finest one that covers a
+// spot (0 everywhere for a file without them).
+function decodeGrid(g) {
+  if (!g) return null;
+  const raw = atob(g.data);
+  const h = new Float32Array(raw.length / 2);
+  for (let i = 0; i < h.length; i++) h[i] = (((raw.charCodeAt(2 * i) | (raw.charCodeAt(2 * i + 1) << 8)) << 16) >> 16) / 10;
+  return { ...g, h };
+}
+function sampleGrid(G, x, z) {
+  const fx = (x - G.x0) / G.step;
+  const fz = (z - G.z0) / G.step;
+  if (!(fx >= 0 && fz >= 0 && fx <= G.nx - 1 && fz <= G.nz - 1)) return null;
+  const j = Math.min(G.nx - 2, Math.floor(fx));
+  const i = Math.min(G.nz - 2, Math.floor(fz));
+  const tx = fx - j;
+  const tz = fz - i;
+  const h = G.h;
+  const a = i * G.nx + j;
+  return (h[a] * (1 - tx) + h[a + 1] * tx) * (1 - tz) + (h[a + G.nx] * (1 - tx) + h[a + G.nx + 1] * tx) * tz;
+}
+function terrainOf(data) {
+  const grids = [decodeGrid(data.terrain), decodeGrid(data.region), decodeGrid(data.far)];
+  const heightAt = (x, z) => {
+    for (const G of grids) {
+      if (!G) continue;
+      const h = sampleGrid(G, x, z);
+      if (h !== null) return h;
+    }
+    return 0;
+  };
+  return { heightAt, terrain: grids[0], region: grids[1], far: grids[2] };
+}
+
+// A grid of heights as a mesh, uv from world x/z (uvOf), heights through
+// `lift`. Vertex colors shade the slopes as if lit from the north-west (like
+// a relief map): the toon light alone barely tells a gentle hill from flat.
+const RELIEF = new THREE.Vector3(-1, 1.1, -1).normalize();
+function gridMesh(G, uvOf, lift = (x, z, h) => h, relief = 1.6) {
+  const pos = new Float32Array(G.nx * G.nz * 3);
+  const uv = new Float32Array(G.nx * G.nz * 2);
+  for (let i = 0; i < G.nz; i++) {
+    for (let j = 0; j < G.nx; j++) {
+      const k = i * G.nx + j;
+      const x = G.x0 + j * G.step;
+      const z = G.z0 + i * G.step;
+      pos.set([x, lift(x, z, G.h[k]), z], k * 3);
+      uv.set(uvOf(x, z), k * 2);
+    }
+  }
+  const index = [];
+  for (let i = 0; i < G.nz - 1; i++) {
+    for (let j = 0; j < G.nx - 1; j++) {
+      const a = i * G.nx + j;
+      index.push(a, a + G.nx, a + 1, a + 1, a + G.nx, a + G.nx + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(index);
+  g.computeVertexNormals();
+  const n = g.attributes.normal;
+  const col = new Float32Array(n.count * 3);
+  const flatLit = RELIEF.y;
+  for (let k = 0; k < n.count; k++) {
+    const lit = n.getX(k) * RELIEF.x + n.getY(k) * RELIEF.y + n.getZ(k) * RELIEF.z;
+    const v = Math.min(1.12, Math.max(0.62, 1 + (lit - flatLit) * relief));
+    col.set([v, v, v], k * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
+// Triangles cut down until no edge is longer than `max`, then laid on the
+// terrain (water and anything else flat that has to follow the ground).
+function drape(positions, heightAt, lift, max = 12) {
+  const out = [];
+  const stack = [];
+  for (let i = 0; i < positions.length; i += 9) stack.push(positions.slice(i, i + 9));
+  while (stack.length) {
+    const t = stack.pop();
+    const d = (a, b) => Math.hypot(t[a] - t[b], t[a + 2] - t[b + 2]);
+    const e = [d(0, 3), d(3, 6), d(6, 0)];
+    const k = e.indexOf(Math.max(...e));
+    if (e[k] <= max) {
+      for (let v = 0; v < 9; v += 3) out.push(t[v], heightAt(t[v], t[v + 2]) + lift, t[v + 2]);
+      continue;
+    }
+    // Split the longest edge in two.
+    const [a, b, c] = [[0, 3, 6], [3, 6, 0], [6, 0, 3]][k];
+    const m = [(t[a] + t[b]) / 2, 0, (t[a + 2] + t[b + 2]) / 2];
+    const P = (o) => [t[o], t[o + 1], t[o + 2]];
+    stack.push([...P(a), ...m, ...P(c)], [...m, ...P(b), ...P(c)]);
+  }
+  return out;
+}
+
 // Flat triangles for a ring (+ holes) at height y, facing up.
 function capTriangles(pts, holes, y, out) {
   const tris = THREE.ShapeUtils.triangulateShape(pts, holes);
@@ -587,6 +688,7 @@ function instanced(geo, mat, matrices, colors) {
 
 function buildCampus(data) {
   const rnd = seeded(9);
+  const { heightAt, terrain, region, far } = terrainOf(data);
   const meshes = []; // [mesh], all at campus coordinates
   const facades = Object.fromEntries(Object.keys(STYLES).map((s) => {
     const { map, glow } = facadeTextures(s, rnd);
@@ -607,89 +709,102 @@ function buildCampus(data) {
   data.buildings.forEach((b, bi) => {
     let pts = ringPoints(b.ring);
     if (ringArea(pts) < 0) pts = pts.reverse();
-    const holes = (b.holes ?? []).map(ringPoints);
     footprints.push(pts);
-    const h = b.h;
-    const floors = Math.max(1, Math.round((h - 1) / FLOOR));
     const style = styleOrder[bi % styleOrder.length];
     const F = facades[style];
-    const v1 = floors / FLOORS_TEX;
-    const top = h + PARAPET;
-    const hullPos = [];
+    // Measured buildings come in parts at their own roof heights, standing
+    // on the lowest ground around them (walls go a little into the slope).
+    const base = b.parts ? b.base : 0;
+    const parts = b.parts
+      ? b.parts.map((p) => ({ top: p.top, rings: p.rings.map(ringPoints) }))
+      : [{ top: b.h, rings: [pts, ...(b.holes ?? []).map(ringPoints)] }];
     let u = Math.floor(rnd() * BAYS_TEX);
-    for (const ring of [pts, ...holes]) {
-      for (let i = 0; i < ring.length; i++) {
-        const a = ring[i];
-        const c = ring[(i + 1) % ring.length];
-        const len = a.distanceTo(c);
-        if (len < 0.05) continue;
-        // Whole bays per wall so windows never get cut at a corner; short
-        // walls show just the brick between two windows.
-        const bays = len >= 2.2 ? Math.max(1, Math.round(len / BAY)) : 0;
-        const ua = bays ? u : u - 0.15 / BAYS_TEX;
-        const uc = bays ? u + bays / BAYS_TEX : u + 0.15 / BAYS_TEX;
-        if (bays) u = uc;
-        // Rings have the building on their left (outer ring counter-clockwise
-        // in x/z, courtyards the other way), so `out` winds the face to the right.
-        const quad = (pos, uvs, y0, y1, out, uv) => {
-          const P = [[a.x, y0, a.y], [c.x, y0, c.y], [c.x, y1, c.y], [a.x, y1, a.y]];
-          const T = uv ?? [[0, 0], [1, 0], [1, 1], [0, 1]];
-          const order = out ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3];
-          for (const k of order) {
-            pos.push(...P[k]);
-            uvs?.push(...T[k]);
-          }
-        };
-        quad(F.pos, F.uv, 0, h, true, [[ua, 0], [uc, 0], [uc, v1], [ua, v1]]);
-        quad(trimPos, null, h, top, true);
-        quad(trimPos, null, h, top, false); // the parapet's inside, seen from above
-        quad(hullPos, null, 0, top, true);
-      }
-    }
-    // Roof just under the parapet, and a cap on the outline hull.
-    const roofTris = [];
-    capTriangles(pts, holes, h, roofTris);
-    roofPos.push(...roofTris);
-    for (let i = 0; i < roofTris.length; i += 3) roofUv.push(roofTris[i] / 12, roofTris[i + 2] / 12);
-    capTriangles(pts, holes, top, hullPos);
-    inkGeos.push(hull(hullPos, 0.22));
-
-    // Rooftop units on the bigger roofs, lined up with the longest wall.
-    const area = Math.abs(ringArea(pts));
-    if (area > 250) {
-      let longest = 0;
-      let yaw = 0;
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i];
-        const c = pts[(i + 1) % pts.length];
-        const len = a.distanceTo(c);
-        if (len > longest) { longest = len; yaw = -Math.atan2(c.y - a.y, c.x - a.x); }
-      }
-      const xs = pts.map((p) => p.x);
-      const zs = pts.map((p) => p.y);
-      const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
-      const want = Math.min(7, Math.max(1, Math.round(area / 700)));
-      for (let tries = 0, placed = 0; tries < 60 && placed < want; tries++) {
-        const x = x0 + rnd() * (x1 - x0);
-        const z = z0 + rnd() * (z1 - z0);
-        const w = 2 + rnd() * 3;
-        const d = 1.6 + rnd() * 1.6;
-        if (!insideRing(x, z, pts) || edgeDistance(x, z, pts) < Math.max(w, d) / 2 + 1.5) continue;
-        if (holes.some((hole) => insideRing(x, z, hole) || edgeDistance(x, z, hole) < 4)) continue;
-        const uh = 0.9 + rnd() * 0.8;
-        const box = new THREE.BoxGeometry(w, uh, d);
-        box.rotateY(yaw);
-        box.translate(x, h + uh / 2, z);
-        unitGeos.push(box);
-        if (rnd() < 0.6) { // a fan on top
-          const fan = new THREE.CylinderGeometry(0.45, 0.45, 0.2, 10);
-          fan.translate(x + 0.5 * Math.cos(-yaw), h + uh + 0.1, z + 0.5 * Math.sin(-yaw));
-          unitGeos.push(fan);
+    for (const part of parts) {
+      let [outer, ...holes] = part.rings;
+      if (ringArea(outer) < 0) outer = outer.reverse();
+      holes = holes.map((hl) => (ringArea(hl) > 0 ? hl.reverse() : hl));
+      const h = part.top;
+      const y0 = base - 0.6;
+      const floors = Math.max(1, Math.round((h - base - 1) / FLOOR));
+      const v1 = floors / FLOORS_TEX;
+      const top = h + PARAPET;
+      const hullPos = [];
+      for (const ring of [outer, ...holes]) {
+        for (let i = 0; i < ring.length; i++) {
+          const a = ring[i];
+          const c = ring[(i + 1) % ring.length];
+          const len = a.distanceTo(c);
+          if (len < 0.05) continue;
+          // Whole bays per wall so windows never get cut at a corner; short
+          // walls show just the brick between two windows.
+          const bays = len >= 2.2 ? Math.max(1, Math.round(len / BAY)) : 0;
+          const ua = bays ? u : u - 0.15 / BAYS_TEX;
+          const uc = bays ? u + bays / BAYS_TEX : u + 0.15 / BAYS_TEX;
+          if (bays) u = uc;
+          // Rings have the building on their left (outer ring counter-clockwise
+          // in x/z, courtyards the other way), so `out` winds the face to the right.
+          const quad = (pos, uvs, ya, yb, out, uv) => {
+            const P = [[a.x, ya, a.y], [c.x, ya, c.y], [c.x, yb, c.y], [a.x, yb, a.y]];
+            const T = uv ?? [[0, 0], [1, 0], [1, 1], [0, 1]];
+            const order = out ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3];
+            for (const k of order) {
+              pos.push(...P[k]);
+              uvs?.push(...T[k]);
+            }
+          };
+          quad(F.pos, F.uv, y0, h, true, [[ua, 0], [uc, 0], [uc, v1], [ua, v1]]);
+          quad(trimPos, null, h, top, true);
+          quad(trimPos, null, h, top, false); // the parapet's inside, seen from above
+          quad(hullPos, null, y0, top, true);
         }
-        placed++;
       }
+      // Roof just under the parapet, and a cap on the outline hull.
+      const roofTris = [];
+      capTriangles(outer, holes, h, roofTris);
+      roofPos.push(...roofTris);
+      for (let i = 0; i < roofTris.length; i += 3) roofUv.push(roofTris[i] / 12, roofTris[i + 2] / 12);
+      capTriangles(outer, holes, top, hullPos);
+      inkGeos.push(hull(hullPos, 0.22));
+      roofUnits(outer, holes, h);
     }
   });
+
+  // Rooftop units on the bigger roofs, lined up with the longest wall.
+  function roofUnits(pts, holes, h) {
+    const area = Math.abs(ringArea(pts));
+    if (area < 250) return;
+    let longest = 0;
+    let yaw = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const c = pts[(i + 1) % pts.length];
+      const len = a.distanceTo(c);
+      if (len > longest) { longest = len; yaw = -Math.atan2(c.y - a.y, c.x - a.x); }
+    }
+    const xs = pts.map((p) => p.x);
+    const zs = pts.map((p) => p.y);
+    const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+    const want = Math.min(7, Math.max(1, Math.round(area / 700)));
+    for (let tries = 0, placed = 0; tries < 60 && placed < want; tries++) {
+      const x = x0 + rnd() * (x1 - x0);
+      const z = z0 + rnd() * (z1 - z0);
+      const w = 2 + rnd() * 3;
+      const d = 1.6 + rnd() * 1.6;
+      if (!insideRing(x, z, pts) || edgeDistance(x, z, pts) < Math.max(w, d) / 2 + 1.5) continue;
+      if (holes.some((hole) => insideRing(x, z, hole) || edgeDistance(x, z, hole) < 4)) continue;
+      const uh = 0.9 + rnd() * 0.8;
+      const box = new THREE.BoxGeometry(w, uh, d);
+      box.rotateY(yaw);
+      box.translate(x, h + uh / 2, z);
+      unitGeos.push(box);
+      if (rnd() < 0.6) { // a fan on top
+        const fan = new THREE.CylinderGeometry(0.45, 0.45, 0.2, 10);
+        fan.translate(x + 0.5 * Math.cos(-yaw), h + uh + 0.1, z + 0.5 * Math.sin(-yaw));
+        unitGeos.push(fan);
+      }
+      placed++;
+    }
+  }
 
   for (const F of Object.values(facades)) {
     if (F.pos.length) meshes.push(new THREE.Mesh(geometry(F.pos, F.uv), F.mat));
@@ -720,20 +835,21 @@ function buildCampus(data) {
   for (const t of trees) {
     const spin = q.setFromAxisAngle(up, rnd() * Math.PI * 2).clone();
     const tall = t.top - t.base;
+    const g = heightAt(t.x, t.z);
     if (rnd() < 0.36) {
       forest.push({
-        x: t.x, z: t.z, kind: 'pine', color: new THREE.Color(pines[Math.floor(rnd() * pines.length)]),
-        m: new THREE.Matrix4().compose(new THREE.Vector3(t.x, t.base * 0.55, t.z), spin, new THREE.Vector3(t.r * 0.72, t.top - t.base * 0.55, t.r * 0.72)),
-        trunk: new THREE.Matrix4().compose(new THREE.Vector3(t.x, 0, t.z), spin, new THREE.Vector3(0.3, t.base * 0.8, 0.3)),
+        x: t.x, z: t.z, g, top: t.top, kind: 'pine', color: new THREE.Color(pines[Math.floor(rnd() * pines.length)]),
+        m: new THREE.Matrix4().compose(new THREE.Vector3(t.x, g + t.base * 0.55, t.z), spin, new THREE.Vector3(t.r * 0.72, t.top - t.base * 0.55, t.r * 0.72)),
+        trunk: new THREE.Matrix4().compose(new THREE.Vector3(t.x, g - 0.5, t.z), spin, new THREE.Vector3(0.3, t.base * 0.8 + 0.5, 0.3)),
       });
     } else {
       const fall = rnd() < 0.24;
       const cy = t.base + tall * 0.52;
       const colors = fall ? autumn : greens;
       forest.push({
-        x: t.x, z: t.z, kind: 'maple', color: new THREE.Color(colors[Math.floor(rnd() * colors.length)]),
-        m: new THREE.Matrix4().compose(new THREE.Vector3(t.x, cy, t.z), spin, new THREE.Vector3(t.r * 0.92, tall * 0.5, t.r * 0.92)),
-        trunk: new THREE.Matrix4().compose(new THREE.Vector3(t.x, 0, t.z), spin, new THREE.Vector3(0.38, cy, 0.38)),
+        x: t.x, z: t.z, g, top: t.top, kind: 'maple', color: new THREE.Color(colors[Math.floor(rnd() * colors.length)]),
+        m: new THREE.Matrix4().compose(new THREE.Vector3(t.x, g + cy, t.z), spin, new THREE.Vector3(t.r * 0.92, tall * 0.5, t.r * 0.92)),
+        trunk: new THREE.Matrix4().compose(new THREE.Vector3(t.x, g - 0.5, t.z), spin, new THREE.Vector3(0.38, cy + 0.5, 0.38)),
       });
     }
   }
@@ -759,7 +875,7 @@ function buildCampus(data) {
   for (const s of stalls) {
     if (!s.car) continue;
     const yaw = -(s.ang + Math.PI / 2) + (s.face < 0 ? Math.PI : 0) + (rnd() - 0.5) * 0.08;
-    cars.m.push(new THREE.Matrix4().compose(new THREE.Vector3(s.x, 0, s.z), q.setFromAxisAngle(up, yaw).clone(), new THREE.Vector3(1, 1, 1)));
+    cars.m.push(new THREE.Matrix4().compose(new THREE.Vector3(s.x, heightAt(s.x, s.z) - 0.05, s.z), q.setFromAxisAngle(up, yaw).clone(), new THREE.Vector3(1, 1, 1)));
     cars.c.push(new THREE.Color(carColors[Math.floor(rnd() * carColors.length)]));
   }
   if (cars.m.length) {
@@ -771,17 +887,24 @@ function buildCampus(data) {
   // ---- Ground and river ----
   const { tex, bounds } = paintGround(data, stalls, trees, footprints);
   const [bx0, bz0, bx1, bz1] = bounds;
-  const ground = new THREE.BufferGeometry();
-  ground.setAttribute('position', new THREE.Float32BufferAttribute([bx0, 0, bz0, bx0, 0, bz1, bx1, 0, bz1, bx1, 0, bz0], 3));
-  ground.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
-  ground.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 1, 1], 2));
-  ground.setIndex([0, 1, 2, 0, 2, 3]);
-  const groundMesh = new THREE.Mesh(ground, toon(0xffffff, { map: tex, transparent: true }));
+  const uvOf = (x, z) => [Math.min(1, Math.max(0, (x - bx0) / (bx1 - bx0))), Math.min(1, Math.max(0, 1 - (z - bz0) / (bz1 - bz0)))];
+  let ground;
+  if (terrain) {
+    ground = gridMesh(terrain, uvOf);
+  } else {
+    ground = new THREE.BufferGeometry();
+    ground.setAttribute('position', new THREE.Float32BufferAttribute([bx0, 0, bz0, bx0, 0, bz1, bx1, 0, bz1, bx1, 0, bz0], 3));
+    ground.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+    ground.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 1, 1], 2));
+    ground.setIndex([0, 1, 2, 0, 2, 3]);
+  }
+  const groundMesh = new THREE.Mesh(ground, toon(0xffffff, { map: tex, transparent: true, vertexColors: !!terrain }));
   groundMesh.renderOrder = -2;
   meshes.push(groundMesh);
 
-  const waterPos = [];
-  for (const poly of data.layers.water) capTriangles(ringPoints(poly[0]), poly.slice(1).map(ringPoints), 0.15, waterPos);
+  const flat = [];
+  for (const poly of data.layers.water) capTriangles(ringPoints(poly[0]), poly.slice(1).map(ringPoints), 0, flat);
+  const waterPos = drape(flat, heightAt, 0.25);
   const waterUv = [];
   for (let i = 0; i < waterPos.length; i += 3) waterUv.push(waterPos[i] / 36, waterPos[i + 2] / 36);
   const ripples = rippleTexture();
@@ -792,6 +915,11 @@ function buildCampus(data) {
   const water = new THREE.Mesh(geometry(waterPos, waterUv), waterMat);
   water.renderOrder = -1;
   meshes.push(water);
+
+  // The countryside: the real hills and the river around campus.
+  const country = buildCountryside(data, { heightAt, region, far, bounds });
+  for (const mesh of country) mesh.userData.countryside = true;
+  meshes.push(...country);
 
   // All the outlines in one mesh.
   meshes.push(new THREE.Mesh(mergeGeometries(inkGeos), inkMat));
@@ -830,14 +958,14 @@ function rippleTexture() {
   return tex;
 }
 
-// ---- The countryside around it (built once too) ----
+// ---- The countryside around it ----
+// The real lay of the land out to 40 km (tools/prep_terrain.py): farm fields
+// draped over it, the river and ponds, red barns. The farthest hills are
+// stretched taller (up to 3x past 20 km) so the Adirondack foothills to the
+// south-east still read on the horizon; nearby it's true to scale.
 
-let countryside = null;
-function buildCountryside() {
-  if (countryside) return countryside;
+function fieldsTexture() {
   const rnd = seeded(13);
-  const meshes = [];
-  // Farm fields out to the horizon.
   const fields = paint(1024, 1024, (ctx, w, h) => {
     const colors = ['#9fc46a', '#b7cf74', '#8fb85e', '#c9c77a', '#a8c46e', '#86ad57', '#b9b46a'];
     // Rows of fields of uneven sizes, plowed lines across each.
@@ -864,74 +992,46 @@ function buildCountryside() {
     }
   });
   fields.wrapS = fields.wrapT = THREE.RepeatWrapping;
-  fields.repeat.set(12, 12);
   fields.anisotropy = 8;
   fields.userData.cached = true;
-  const farm = new THREE.Mesh(new THREE.CircleGeometry(9000, 64).rotateX(-Math.PI / 2), toon(0xffffff, { map: fields }));
-  farm.position.y = -1.5;
-  farm.renderOrder = -3;
-  meshes.push(farm);
+  return fields;
+}
 
-  // Wooded hills in a ring, and the Adirondack foothills to the south-east.
-  const hillGeos = [];
-  const hillInk = [];
-  for (let i = 0; i < 34; i++) {
-    const a = (i / 34) * Math.PI * 2 + rnd() * 0.12;
-    const d = 1700 + rnd() * 1400;
-    const r = 220 + rnd() * 220;
-    const g = new THREE.SphereGeometry(r, 18, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-    g.scale(1, 0.1 + rnd() * 0.12, 1);
-    g.translate(Math.cos(a) * d, -2, Math.sin(a) * d);
-    hillGeos.push(g);
-    hillInk.push(unitHull(g, 4));
+function buildCountryside(data, { heightAt, region, far, bounds }) {
+  const rnd = seeded(13);
+  const meshes = [];
+  const fields = toon(0xffffff, { map: fieldsTexture(), vertexColors: !!region });
+  const fieldUv = (x, z) => [x / 1400, z / 1400];
+  const [bx0, bz0, bx1, bz1] = bounds;
+  if (region) {
+    // Under the campus (but not its faded edge) the coarse grid ducks out of
+    // the way of the detailed ground.
+    const under = (x, z) => x > bx0 + 70 && x < bx1 - 70 && z > bz0 + 70 && z < bz1 - 70;
+    meshes.push(new THREE.Mesh(gridMesh(region, fieldUv, (x, z, h) => (under(x, z) ? h - 4 : h)), fields));
+  } else {
+    const farm = new THREE.Mesh(new THREE.CircleGeometry(9000, 64).rotateX(-Math.PI / 2), fields);
+    farm.position.y = -1.5;
+    meshes.push(farm);
   }
-  const ridgeGeos = [];
-  for (let i = 0; i < 11; i++) {
-    const a = rad(-5 + i * 9 + rnd() * 5); // south-east of campus (x east, z south)
-    const d = 3300 + rnd() * 900;
-    const r = 800 + rnd() * 600;
-    const g = new THREE.SphereGeometry(r, 20, 7, 0, Math.PI * 2, 0, Math.PI / 2);
-    g.scale(1, 0.3 + rnd() * 0.18, 0.7);
-    g.rotateY(-a);
-    g.translate(Math.cos(a) * d, -3, Math.sin(a) * d);
-    ridgeGeos.push(g);
-    hillInk.push(unitHull(g, 7));
-  }
-  const land = [...hillGeos.map((g) => tint(g, 0x4b8a4a)), ...ridgeGeos.map((g) => tint(g, 0x7f97c4))];
-  meshes.push(new THREE.Mesh(mergeGeometries(land), toon(0xffffff, { vertexColors: true })));
-  meshes.push(new THREE.Mesh(mergeGeometries(hillInk), INK_MAT()));
-
-  // The Grasse River carries on past both edges of the map (it starts
-  // inside them, under the campus ground, so it shows through the fade).
-  const ribbon = (pts, width, y) => {
-    const pos = [];
-    const side = (i) => {
-      const [x0, z0] = pts[Math.max(0, i - 1)];
-      const [x1, z1] = pts[Math.min(pts.length - 1, i + 1)];
-      const len = Math.hypot(x1 - x0, z1 - z0);
-      const [nx, nz] = [-(z1 - z0) / len, (x1 - x0) / len];
-      const w = (width / 2) * (1 + i * 0.06);
-      return [[pts[i][0] + nx * w, pts[i][1] + nz * w], [pts[i][0] - nx * w, pts[i][1] - nz * w]];
+  if (far) {
+    const inRegion = (x, z) => region && Math.abs(x) < 3950 && Math.abs(z) < 3950;
+    const stretch = (x, z) => {
+      const d = Math.max(Math.abs(x), Math.abs(z));
+      const t = Math.min(1, Math.max(0, (d - 4000) / 16000));
+      return 1 + 2 * t * t * (3 - 2 * t);
     };
-    for (let i = 0; i + 1 < pts.length; i++) {
-      const [a, b] = side(i);
-      const [c, d] = side(i + 1);
-      for (const [p, q, r] of [[a, c, b], [b, c, d]]) {
-        const up = (q[1] - p[1]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[1] - p[1]) > 0;
-        for (const v of up ? [p, q, r] : [p, r, q]) pos.push(v[0], y, v[1]);
-      }
-    }
-    return pos;
-  };
-  const courses = [
-    [[104, -470], [88, -560], [52, -690], [-20, -880], [-150, -1130], [-320, -1480], [-520, -2080], [-760, -2880], [-1050, -3900], [-1400, -5200]],
-    [[290, -48], [345, -22], [425, 18], [545, 92], [720, 210], [960, 360], [1330, 560], [1900, 840], [2700, 1250], [3900, 1900]],
-  ];
-  const offset = (f) => ({ polygonOffset: true, polygonOffsetFactor: f, polygonOffsetUnits: f });
-  const banks = new THREE.Mesh(geometry(courses.flatMap((c) => ribbon(c, 62, -1.05))), new THREE.MeshBasicMaterial({ color: 0x2a4f73, ...offset(-3) }));
-  const river = new THREE.Mesh(geometry(courses.flatMap((c) => ribbon(c, 50, -1.0))), toon(0x3f8fd0, offset(-6)));
-  banks.renderOrder = river.renderOrder = -3;
-  meshes.push(banks, river);
+    meshes.push(new THREE.Mesh(gridMesh(far, fieldUv, (x, z, h) => (inRegion(x, z) ? h - 15 : h * stretch(x, z))), fields));
+  }
+  for (const mesh of meshes) mesh.renderOrder = -3;
+
+  // The river and ponds (the campus ground paints its own stretch).
+  const flat = [];
+  for (const poly of data.waterRegion ?? []) capTriangles(ringPoints(poly[0]), poly.slice(1).map(ringPoints), 0, flat);
+  if (flat.length) {
+    const river = new THREE.Mesh(geometry(drape(flat, heightAt, 0.45, 30)), toon(0x3f8fd0, { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+    river.renderOrder = -3;
+    meshes.push(river);
+  }
 
   // Red barns and silos dotted around the farms.
   const farms = [];
@@ -940,26 +1040,25 @@ function buildCountryside() {
     const d = 650 + rnd() * 900;
     const x = Math.cos(a) * d;
     const z = Math.sin(a) * d;
+    const y = heightAt(x, z) - 0.5;
     const yaw = rnd() * Math.PI;
-    const body = new THREE.BoxGeometry(22, 9, 13);
-    body.translate(0, 4.5, 0);
-    const roof = new THREE.CylinderGeometry(7.5, 7.5, 22.4, 4, 1, false, Math.PI / 4, Math.PI / 2 * 2);
+    const body = new THREE.BoxGeometry(22, 10, 13);
+    body.translate(0, 5, 0);
+    const roof = new THREE.CylinderGeometry(7.5, 7.5, 22.4, 4, 1, false, Math.PI / 4, Math.PI);
     roof.rotateZ(Math.PI / 2);
     roof.scale(1, 0.75, 1);
-    roof.translate(0, 9, 0);
+    roof.translate(0, 10, 0);
     for (const [g, color] of [[body, 0xb8382c], [roof, 0x5a5e66]]) {
       g.rotateY(yaw);
-      g.translate(x, 0, z);
+      g.translate(x, y, z);
       farms.push(tint(g, color));
     }
-    const s = new THREE.CylinderGeometry(2.6, 2.6, 15, 10);
-    s.translate(x + Math.cos(yaw) * 15, 7.5, z - Math.sin(yaw) * 15);
+    const s = new THREE.CylinderGeometry(2.6, 2.6, 16, 10);
+    s.translate(x + Math.cos(yaw) * 15, y + 8, z - Math.sin(yaw) * 15);
     farms.push(tint(s, 0xd8d4cc));
   }
   meshes.push(new THREE.Mesh(mergeGeometries(farms), toon(0xffffff, { vertexColors: true })));
-  for (const mesh of meshes) mesh.userData.cached = true;
-  countryside = { meshes };
-  return countryside;
+  return meshes;
 }
 
 // ---- Sky: gradient, sun or moon, stars, all drawn at infinity ----
@@ -1074,9 +1173,10 @@ function cloudLayer() {
 // center: the campus spot [x, z] (meters, x east, z south) that ends up under
 // the scene's origin; yaw turns the campus around it; drop is how far below
 // the origin the ground lies. time: a TIMES name, or a number for cycle().
-// near: maples closer than this to `center` get the detailed look.
+// near: maples closer than this to `center` get the detailed look. clear:
+// { radius, top } keeps trees around `center` below `top` (datum meters).
 
-export function createCampusWorld(scene, { center = [0, 0], yaw = 0, drop = 30, time = 'day', near = 170 } = {}) {
+export function createCampusWorld(scene, { center = [0, 0], yaw = 0, drop = 30, time = 'day', near = 170, clear = null } = {}) {
   const root = new THREE.Group();
   root.position.y = -drop;
   root.rotation.y = yaw;
@@ -1089,7 +1189,7 @@ export function createCampusWorld(scene, { center = [0, 0], yaw = 0, drop = 30, 
   scene.add(sky);
   const clouds = cloudLayer();
   scene.add(clouds.group);
-  scene.fog = new THREE.FogExp2(0xdcefff, 0.00026);
+  scene.fog = new THREE.FogExp2(0xdcefff, 0.00006); // light: the hills 20 km out still show
 
   const hemi = new THREE.HemisphereLight(0xffffff, 0x666666, 1.2);
   const key = new THREE.DirectionalLight(0xffffff, 2);
@@ -1097,16 +1197,12 @@ export function createCampusWorld(scene, { center = [0, 0], yaw = 0, drop = 30, 
   fill.position.set(0, 2, 10);
   scene.add(hemi, key, fill);
 
-  // The countryside is centered on the campus, so it moves with it.
-  for (const mesh of buildCountryside().meshes) campus.add(mesh.clone());
-  campus.children.forEach((c) => { c.userData.cached = true; });
-
   let assets = null;
   let disposed = false;
   const ready = loadCampus().then((a) => {
     if (!a || disposed) return;
     assets = a;
-    for (const mesh of [...a.meshes, ...treeMeshes(a.trees, center, near)]) {
+    for (const mesh of [...a.meshes, ...treeMeshes(a.trees, center, near, clear)]) {
       const copy = mesh.isInstancedMesh ? shareInstanced(mesh) : new THREE.Mesh(mesh.geometry, mesh.material);
       copy.renderOrder = mesh.renderOrder;
       copy.userData.cached = true;
@@ -1174,30 +1270,49 @@ export function createCampusWorld(scene, { center = [0, 0], yaw = 0, drop = 30, 
   };
 }
 
-// The trees as seen from one spot: detailed maples within `NEAR` meters of it,
-// simple ones past that. Cached per spot (the stage and the victory screen
-// each look from their own).
-function treeMeshes(kit, [cx, cz], NEAR) {
-  const key = `${cx},${cz},${NEAR}`;
+// The trees as seen from one spot: detailed maples within `near` meters of
+// it, simple ones past that. `clear` ({ radius, top, dip, front }) shrinks
+// the trees around the spot so none reach above `top` (a floating stage's
+// camera would otherwise be looking through their crowns), `dip` lower right
+// under it; on the camera's side (+z) it reaches `front` times farther.
+// Cached per spot.
+function treeMeshes(kit, [cx, cz], near, clear) {
+  const key = `${cx},${cz},${near},${JSON.stringify(clear)}`;
   if (!kit.sets.has(key)) {
-    const near = [];
+    const close = [];
     const far = [];
     const pines = [];
+    const fit = new Map();
+    const shrink = new THREE.Matrix4();
     for (const t of kit.forest) {
+      const d = Math.hypot(t.x - cx, t.z - cz);
+      let { m, trunk } = t;
+      const reach = clear ? clear.radius * (t.z > cz ? clear.front ?? 1 : 1) : 0;
+      if (clear && d < reach) {
+        const limit = clear.top - (clear.dip ?? 0) * (1 - d / reach);
+        const f = (limit - t.g) / t.top;
+        if (f < 1) {
+          const k = Math.max(0.25, f);
+          shrink.makeTranslation(t.x, t.g, t.z).multiply(new THREE.Matrix4().makeScale(k, k, k)).multiply(new THREE.Matrix4().makeTranslation(-t.x, -t.g, -t.z));
+          m = shrink.clone().multiply(m);
+          trunk = shrink.clone().multiply(trunk);
+        }
+      }
+      fit.set(t, { m, trunk });
       if (t.kind === 'pine') pines.push(t);
-      else (Math.hypot(t.x - cx, t.z - cz) < NEAR ? near : far).push(t);
+      else (d < near ? close : far).push(t);
     }
     const set = [];
     const add = (geo, mat, list, colored) => {
-      if (list.length) set.push(instanced(geo, mat, list.map((t) => t.m), colored ? list.map((t) => t.color) : null));
+      if (list.length) set.push(instanced(geo, mat, list.map((t) => fit.get(t).m), colored ? list.map((t) => t.color) : null));
     };
-    add(kit.blob, kit.leafMat, near, true);
-    add(kit.blobInk, kit.inkMat, near);
+    add(kit.blob, kit.leafMat, close, true);
+    add(kit.blobInk, kit.inkMat, close);
     add(kit.farBlob, kit.leafMat, far, true);
     add(kit.farBlobInk, kit.inkMat, far);
     add(kit.pine, kit.leafMat, pines, true);
     add(kit.pineInk, kit.inkMat, pines);
-    set.push(instanced(kit.trunk, kit.trunkMat, kit.forest.map((t) => t.trunk)));
+    set.push(instanced(kit.trunk, kit.trunkMat, kit.forest.map((t) => fit.get(t).trunk)));
     kit.sets.set(key, set);
   }
   return kit.sets.get(key);

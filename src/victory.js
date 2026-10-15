@@ -56,7 +56,7 @@ const SPOTS = [[0, 0, 0], [-2.0, -1.3, 0.3], [-3.3, -2.4, 0.4], [-4.5, -3.5, 0.5
 const ISLAND = 8.5; // the island's radius
 
 // Over the same spot as the SUNY Canton stage, a little higher.
-const SPOT = { ...STAGE_SPOT, drop: 30 };
+const SPOT = { ...STAGE_SPOT, drop: 36 };
 // Random time of day when the match wasn't on the campus: [name, weight].
 const TIMES = [['day', 4], ['sunset', 3], ['night', 3]];
 
@@ -227,7 +227,7 @@ export class VictoryScene {
   constructor({ renderer, ranked, time }) {
     this.renderer = renderer;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(34, 1, 0.2, 9000);
+    this.camera = new THREE.PerspectiveCamera(34, 1, 0.2, 60000);
     this.effects = new Effects(this.scene);
     this.frame = 0;
     this.time = 0;
@@ -238,7 +238,7 @@ export class VictoryScene {
     const winColor = new THREE.Color(SLOT_COLORS[winner.slot]);
 
     // The campus, sky and lights.
-    this.world = createCampusWorld(this.scene, { ...SPOT, time: time ?? pickTime() });
+    this.world = createCampusWorld(this.scene, { ...SPOT, time: time ?? pickTime(), clear: { radius: 130, top: SPOT.drop - 7, dip: 12, front: 1.3 } });
     const p = this.world.palette;
     this.night = p.lamps; // 0 by day, 1 at night
     const key = this.world.key;

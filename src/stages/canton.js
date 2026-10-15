@@ -11,9 +11,11 @@ import { FONTS } from '../fonts.js';
 // The island builders here are shared with the victory screen, which floats
 // the winner over the campus on a round chunk of the same plaza.
 
-// Where things float over the campus (campus meters: x east, z south).
-// The stage looks north up the main quad at the big brick buildings.
-export const STAGE_SPOT = { center: [8, 130], yaw: 0, drop: 26 };
+// Where things float over the campus (campus meters: x east, z south; drop
+// is from the campus datum, 125 m above sea level, which is about the ground
+// here). The stage looks north up the main quad at the big brick buildings,
+// high enough to clear the tallest trees around it (~30 m).
+export const STAGE_SPOT = { center: [8, 130], yaw: 0, drop: 32 };
 const DAY_LENGTH = 300; // seconds for a full day on the stage
 const START = 0.08; // matches start in the morning
 
@@ -389,7 +391,7 @@ function slab(parent, p, mats) {
 }
 
 export function buildCanton(stage, scene) {
-  const world = createCampusWorld(scene, { ...STAGE_SPOT, time: START, near: 100 });
+  const world = createCampusWorld(scene, { ...STAGE_SPOT, time: START, near: 100, clear: { radius: 190, top: STAGE_SPOT.drop - 7, dip: 10 } });
   const key = world.key;
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024); // only the fighters and platforms cast shadows
@@ -414,7 +416,7 @@ export function buildCanton(stage, scene) {
   let time = 0;
   let paletteTimer = 0;
   return {
-    camera: { near: 0.5, far: 9000 },
+    camera: { near: 0.5, far: 60000 },
     // The victory screen carries on at the same time of day.
     get timeOfDay() { return START + time / DAY_LENGTH; },
     update(dt) {
