@@ -8,6 +8,7 @@ import { VictoryScene } from './victory.js';
 import { voice } from './voice.js';
 import { outfitsFor, ACCESSORIES } from './cosmetics.js';
 import { STAGES } from './stages.js';
+import { createSelect, resolveChar, RANDOM, CONTROL_OPTIONS } from './select.js';
 
 const canvas = document.getElementById('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -31,12 +32,26 @@ const QUALITY = {
 let quality = QUALITY[store.get('brawl.quality', 'auto')] ? store.get('brawl.quality', 'auto') : 'auto';
 let pixelRatio = 1;
 
-function applyQuality() {
+// The resolution range for what's on screen. The victory screen is a light
+// scene seen up close, so it never inherits whatever Auto dropped to in a
+// heavy match (that made everyone look blurry): it renders at least at
+// screen resolution, and above it when there's room (smoother edges and
+// skin on the scanned models).
+function ratioRange() {
   const q = QUALITY[quality];
-  pixelRatio = Math.min(window.devicePixelRatio, q.max);
-  if (quality === 'fast') pixelRatio = q.max;
+  const dpr = window.devicePixelRatio || 1;
+  if (victory) {
+    const native = Math.max(1, dpr);
+    const top = quality === 'fast' ? native : Math.min(2, native * 1.5);
+    return { top, min: native };
+  }
+  return { top: quality === 'fast' ? q.max : Math.min(dpr, q.max), min: q.min };
+}
+
+function applyQuality() {
+  pixelRatio = ratioRange().top;
   renderer.setPixelRatio(pixelRatio);
-  renderer.shadowMap.enabled = q.shadows;
+  renderer.shadowMap.enabled = QUALITY[quality].shadows;
   resize();
 }
 
@@ -49,11 +64,10 @@ function trackFrame(dt) {
   perf.fps = perf.frames / perf.time;
   perf.frames = perf.time = 0;
   $('fps').textContent = `${Math.round(perf.fps)} fps · ${pixelRatio.toFixed(2)}x`;
-  const q = QUALITY[quality];
-  if (quality !== 'auto' || paused || !game || game.ended) return;
-  const top = Math.min(window.devicePixelRatio, q.max);
-  if (perf.fps < 50 && pixelRatio > q.min) {
-    pixelRatio = Math.max(q.min, pixelRatio - 0.15);
+  if (quality !== 'auto' || paused || !(victory || (game && !game.ended))) return;
+  const { top, min } = ratioRange();
+  if (perf.fps < 50 && pixelRatio > min) {
+    pixelRatio = Math.max(min, pixelRatio - 0.15);
     perf.calm = 0;
   } else if (perf.fps > 58 && pixelRatio < top && ++perf.calm >= 4) {
     pixelRatio = Math.min(top, pixelRatio + 0.1);
@@ -83,20 +97,10 @@ const updateFps = () => {
 $('show-fps').onchange = updateFps;
 const show = (name) => {
   for (const [k, el] of Object.entries(screens)) el.classList.toggle('hidden', k !== name);
+  if (name !== 'menu') $('hand-token').classList.add('hidden'); // the select screen's mouse coin
 };
 
-// ---- Menu / character select ----
-
-const CONTROL_OPTIONS = [
-  ['off', 'Off'],
-  ['kb1', 'Keyboard (WASD)'],
-  ['kb2', 'Keyboard (Arrows)'],
-  ['pad0', 'Gamepad 1'],
-  ['pad1', 'Gamepad 2'],
-  ['pad2', 'Gamepad 3'],
-  ['pad3', 'Gamepad 4'],
-  ['cpu', 'CPU'],
-];
+// ---- Menu / character select (see select.js) ----
 
 // Each player's pick: who's playing it, the character, and their cosmetics
 // (outfit and extra, as list positions). Remembered between visits.
@@ -111,7 +115,7 @@ try {
   if (Array.isArray(saved)) saved.slice(0, 4).forEach((s, i) => Object.assign(slots[i], s));
 } catch { /* bad save: keep the defaults */ }
 for (const s of slots) {
-  if (!ROSTER[s.char]) s.char = 0;
+  if (!ROSTER[s.char] && s.char !== RANDOM) s.char = 0;
   if (!CONTROL_OPTIONS.some(([v]) => v === s.control)) s.control = 'off';
 }
 const saveSlots = () => store.set('brawl.slots', JSON.stringify(slots));
@@ -132,68 +136,12 @@ $('stage-prev').onclick = () => stepStage(-1);
 $('stage-next').onclick = () => stepStage(1);
 $('stage-thumb').onclick = () => stepStage(1);
 
-function renderSlots() {
-  const wrap = $('slots');
-  wrap.innerHTML = '';
-  slots.forEach((slot, i) => {
-    const c = ROSTER[slot.char];
-    const card = document.createElement('div');
-    card.className = `slot ${slot.control === 'off' ? 'off' : ''}`;
-    card.style.setProperty('--slot', SLOT_COLORS[i]);
-    card.style.setProperty('--char', `#${c.color.toString(16).padStart(6, '0')}`);
-    card.innerHTML = `
-      <div class="slot-head">P${i + 1}</div>
-      <select class="slot-control">${CONTROL_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
-      <div class="slot-char">
-        <button class="prev" aria-label="Previous character">◀</button>
-        <div class="swatch"></div>
-        <button class="next" aria-label="Next character">▶</button>
-      </div>
-      <div class="slot-name"></div>
-      <div class="slot-tagline"></div>
-      <div class="slot-look outfit" title="Outfits: any public/models/${c.id}*.glb file">
-        <button class="prev" aria-label="Previous outfit">‹</button><span></span><button class="next" aria-label="Next outfit">›</button>
-      </div>
-      <div class="slot-look extra">
-        <button class="prev" aria-label="Previous extra">‹</button><span></span><button class="next" aria-label="Next extra">›</button>
-      </div>`;
-    card.querySelector('.slot-name').textContent = c.name;
-    card.querySelector('.slot-tagline').textContent = c.tagline;
-    const select = card.querySelector('select');
-    select.value = slot.control;
-    select.onchange = () => { slot.control = select.value; renderSlots(); };
-    const cycle = (d) => {
-      slot.char = (slot.char + d + ROSTER.length) % ROSTER.length;
-      slot.outfit = 0;
-      renderSlots();
-      voice.say(ROSTER[slot.char].id, 'select', { interrupt: true });
-    };
-    card.querySelector('.slot-char .prev').onclick = () => cycle(-1);
-    card.querySelector('.slot-char .next').onclick = () => cycle(1);
-    // Cosmetics: outfit (other models of them) and an extra (hat, shades...).
-    const outfits = outfitsFor(c);
-    slot.outfit = Math.min(slot.outfit ?? 0, outfits.length - 1);
-    slot.extra = Math.min(slot.extra ?? 0, ACCESSORIES.length - 1);
-    const looks = [
-      ['.outfit', 'outfit', outfits, (o) => `👕 ${o.name}`],
-      ['.extra', 'extra', ACCESSORIES, (a) => `🧢 ${a.name}`],
-    ];
-    for (const [sel, key, list, label] of looks) {
-      const row = card.querySelector(sel);
-      row.querySelector('span').textContent = label(list[slot[key]]);
-      row.classList.toggle('single', list.length < 2);
-      const step = (d) => {
-        slot[key] = (slot[key] + d + list.length) % list.length;
-        renderSlots();
-      };
-      row.querySelector('.prev').onclick = () => step(-1);
-      row.querySelector('.next').onclick = () => step(1);
-    }
-    wrap.appendChild(card);
-  });
-  saveSlots();
-  updateHint();
-}
+const select = createSelect({
+  slots,
+  renderer,
+  onChange: () => { saveSlots(); updateHint(); },
+  onStart: () => startFromMenu(),
+});
 
 function updateHint() {
   const active = slots.filter((s) => s.control !== 'off');
@@ -228,7 +176,6 @@ function startMatch(setup = buildSetup()) {
   victory?.dispose();
   victory = null;
   voice.stopAll();
-  renderer.shadowMap.enabled = QUALITY[quality].shadows;
   game = new Game({
     renderer,
     stage: setup.stage,
@@ -237,8 +184,9 @@ function startMatch(setup = buildSetup()) {
     onEnd: showResults,
   });
   game.showHitboxes = $('show-hitboxes').checked;
-  resize();
+  applyQuality(); // back to full sharpness; Auto lowers it again if the match runs slow
   paused = false;
+  frame.padPauseHeld = true; // a Start press that began the match doesn't also pause it
   show(null);
   const someone = game.fighters[Math.floor(Math.random() * game.fighters.length)];
   voice.say(someone.character.id, 'intro');
@@ -249,11 +197,15 @@ function buildSetup() {
     stage: STAGES[stageIndex].id,
     stocks: Number($('stocks').value),
     players: slots
-      .map((s, i) => ({
-        slot: i, control: s.control, character: ROSTER[s.char],
-        look: { model: outfitsFor(ROSTER[s.char])[s.outfit]?.model, accessory: ACCESSORIES[s.extra]?.id ?? null },
-      }))
-      .filter((p) => p.control !== 'off'),
+      .filter((s) => s.control !== 'off')
+      .map((s) => {
+        const c = resolveChar(s); // Random rolls here
+        const outfit = c === s.char ? s.outfit : 0;
+        return {
+          slot: slots.indexOf(s), control: s.control, character: ROSTER[c],
+          look: { model: outfitsFor(ROSTER[c])[outfit]?.model, accessory: ACCESSORIES[s.extra]?.id ?? null },
+        };
+      }),
   };
 }
 
@@ -268,7 +220,7 @@ function showResults(ranked) {
   // The match stays around (for Rematch) but the victory scene takes over the screen.
   victory = new VictoryScene({ renderer, ranked });
   $('quote').textContent = victory.quote ? `"${victory.quote}"` : '';
-  resize();
+  applyQuality();
   show('results');
   voice.say(winner.character.id, 'victory', { interrupt: true });
 }
@@ -279,7 +231,7 @@ function toMenu() {
   game = null;
   victory = null;
   voice.stopAll();
-  renderSlots();
+  select.render();
   show('menu');
 }
 
@@ -290,7 +242,11 @@ function setPaused(p) {
 }
 
 // Canvas text (bubbles, pop-ups) is drawn once and reused: make sure the fonts are in first.
-$('start').onclick = () => fontsReady.then(() => startMatch());
+function startFromMenu() {
+  if ($('start').disabled || game || victory) return;
+  fontsReady.then(() => startMatch());
+}
+$('start').onclick = startFromMenu;
 $('rematch').onclick = () => startMatch(lastSetup);
 $('to-menu').onclick = toMenu;
 $('resume').onclick = () => setPaused(false);
@@ -336,12 +292,17 @@ function frame(now) {
     }
     if (game) game.render(paused ? 0 : dt);
   } else {
+    // Menu: keyboard and gamepad players move their cursors; Enter starts.
+    if (!screens.menu.classList.contains('hidden')) {
+      select.poll();
+      const typing = document.activeElement?.closest?.('select, button, input');
+      if (consumeKey('Enter') && !typing) startFromMenu();
+    }
     endInputFrame();
   }
   requestAnimationFrame(frame);
 }
 
-renderSlots();
 renderStage();
 show('menu');
 applyQuality();
@@ -349,4 +310,4 @@ updateFps();
 requestAnimationFrame(frame);
 
 // Handy for tweaking from the browser console.
-window.brawl = { get game() { return game; }, get victory() { return victory; }, ROSTER, showResults, slots, startMatch, buildSetup };
+window.brawl = { get game() { return game; }, get victory() { return victory; }, ROSTER, showResults, slots, startMatch, buildSetup, renderer };

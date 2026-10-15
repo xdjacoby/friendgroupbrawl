@@ -9,6 +9,10 @@ import * as THREE from 'three';
 // only have a wrist, so this gives each hand two "mitten" joints (knuckles and
 // middle of the fingers) and moves the finger skin onto them.
 //
+// For holding props without them going through the hand, it also keeps a few
+// dozen points of real skin per finger segment (hands.*.chains) and on the
+// palm (hands.*.palmPoints): puppet.js tests those against the prop.
+//
 // Everything is stored in bone space, so it holds for every copy of the model
 // at any size.
 
@@ -141,22 +145,90 @@ export function prepareModel(gltf) {
     const width = band.length ? percentile(kk, 0.95) - percentile(kk, 0.05) : L * 0.5;
     const palm = W.clone().addScaledVector(a, 0.42 * L).addScaledVector(k, kMid).addScaledVector(nrm, nMid);
     const palmFront = palm.clone().addScaledVector(a, 0.05 * L).addScaledVector(nrm, front);
+    // The outermost skin of the palm: a prop sits on this, not sunk into the 8% past `front`.
+    const outer = band.length ? Math.max(front, Math.min(L * 0.3, percentile(nn, 0.99) - nMid)) : front;
+    const palmSurface = palm.clone().addScaledVector(a, 0.05 * L).addScaledVector(nrm, outer);
     const u = unitsLocal(hi);
 
     const info = {
       a: dirLocal(hi, a), k: dirLocal(hi, k), n: dirLocal(hi, nrm),
-      palm: toLocal(hi, palm), front: toLocal(hi, palmFront),
+      palm: toLocal(hi, palm), front: toLocal(hi, palmFront), surface: toLocal(hi, palmSurface),
       len: L * u, thick: (front + back) * u, width: Math.max(width, L * 0.35) * u,
       fingers: [], thumb: [],
     };
 
+    // For closing a finger on a prop until it touches (puppet.closeChain):
+    // points on the skin of each finger segment that could touch it (the
+    // palm side, and the very tip, which leads once the finger is curled),
+    // about one per 5 mm, in that segment's bone space. J: the segment
+    // starts (bind pose, world), end: past the last one, owns(i, k): whether
+    // vertex i is segment k's skin.
+    const fingerSkin = (J, end, owns) => {
+      const segs = [...J, end];
+      const cell = 0.027 * L;
+      return J.map((start, k) => {
+        const d = segs[k + 1].clone().sub(start);
+        const len = d.length();
+        d.normalize();
+        const tipEnd = k === J.length - 1;
+        const picked = new Map();
+        for (let i = 0; i < total; i++) {
+          if (!owns(i, k)) continue;
+          at(i).sub(start);
+          const t = v.dot(d) / len;
+          const out = v.clone().addScaledVector(d, -v.dot(d)).dot(nrm);
+          if (out < 0 && !(tipEnd && t > 0.8)) continue; // the back of the finger never touches
+          if (t < 0.12) continue; // right at the joint the crease folds as it bends: not solid
+          const p = at(i, new THREE.Vector3());
+          const key = `${Math.round(p.x / cell)},${Math.round(p.y / cell)},${Math.round(p.z / cell)}`;
+          if (!picked.has(key)) picked.set(key, p);
+        }
+        const all = [...picked.values()];
+        const stride = Math.max(1, Math.ceil(all.length / 120)); // mittens are a wide slab: keep them dense enough for a thin pen
+        return all.filter((_, i) => i % stride === 0);
+      });
+    };
+    // Points on the palm's own skin (the palm side), about one per 5 mm, for
+    // seating a handle in the fist without sinking it into the palm.
+    const palmCells = new Map();
+    for (let i = 0; i < total; i++) {
+      if (dominant[i] !== hi) continue;
+      at(i).sub(W);
+      const d = v.dot(a);
+      if (d < 0.05 * L || d > 0.55 * L || v.dot(nrm) < nMid) continue;
+      const p = at(i, new THREE.Vector3());
+      const key = `${Math.round(p.x / (0.027 * L))},${Math.round(p.y / (0.027 * L))},${Math.round(p.z / (0.027 * L))}`;
+      if (!palmCells.has(key)) palmCells.set(key, p);
+    }
+    const palmAll = [...palmCells.values()];
+    const palmStride = Math.max(1, Math.ceil(palmAll.length / 96));
+    info.palmPoints = palmAll.filter((_, i) => i % palmStride === 0).map((p) => toLocal(hi, p));
+    info.chains = [];
+    info.thumbChain = null;
+
     const has = (k2) => index.has(k2);
     if (FINGERS.some((fn) => has(`${S}Hand${fn}1`))) {
+      const chainFor = (name) => {
+        const keys = [1, 2, 3].map((j) => `${S}Hand${name}${j}`).filter(has);
+        if (keys.length < 2) return null;
+        const J = keys.map(joint);
+        const endKey = `${S}Hand${name}4`;
+        const end = has(endKey) ? joint(endKey) : J[J.length - 1].clone().multiplyScalar(2).sub(J[J.length - 2]);
+        // Segment k's skin: vertices mostly on its bone (the fingertip's end bone counts as the last one).
+        const segOf = new Map(keys.map((k2, k) => [index.get(k2), k]));
+        if (has(endKey)) segOf.set(index.get(endKey), keys.length - 1);
+        const skin = fingerSkin(J, end, (i, k) => segOf.get(dominant[i]) === k);
+        const ids = keys.map((k2) => index.get(k2));
+        return { bones: ids.map((i) => bones[i].name), skin: skin.map((pts, k) => pts.map((p) => toLocal(ids[k], p))) };
+      };
       for (const fn of FINGERS) {
         const chain = [1, 2, 3].map((j) => `${S}Hand${fn}${j}`).filter(has);
         if (chain.length) info.fingers.push(chain.map((key) => bones[index.get(key)].name));
+        const c2 = chainFor(fn);
+        if (c2) info.chains.push(c2);
       }
       info.thumb = [1, 2, 3].map((j) => `${S}HandThumb${j}`).filter(has).map((key) => bones[index.get(key)].name);
+      info.thumbChain = chainFor('Thumb');
     } else {
       // Mitten joints: knuckles at ~half the hand, then the middle of the fingers.
       const Hinv = skeleton.boneInverses[hi];
@@ -178,6 +250,17 @@ export function prepareModel(gltf) {
       remaps.push({ hand: hi, b1: bones.length + newBones.length - 2, b2: bones.length + newBones.length - 1, W, a, L });
       info.fingers.push([b1.name, b2.name]);
       info.mitten = true;
+      // The finger slab (past the knuckles) is what closes on a prop.
+      const K1 = W.clone().addScaledVector(a, 0.5 * L);
+      const K2 = W.clone().addScaledVector(a, 0.74 * L);
+      const skin = fingerSkin([K1, K2], W.clone().addScaledVector(a, L), (i, k) => {
+        if (weightOn(i, set) < 0.5) return false;
+        const d = at(i).sub(W).dot(a) / L;
+        if (v.addScaledVector(a, -d * L).length() > 0.6 * L) return false; // not part of the hand
+        return k === 0 ? d > 0.54 && d <= 0.74 : d > 0.74;
+      });
+      const inv = newInverses.slice(-2);
+      info.chains.push({ bones: [b1.name, b2.name], skin: skin.map((pts, k) => pts.map((p) => p.clone().applyMatrix4(inv[k]))) });
     }
     return info;
   }

@@ -174,19 +174,23 @@ function chipBag() {
   const foil = new THREE.MeshStandardMaterial({ color: 0x2d7fd8, roughness: 0.3, metalness: 0.35 });
   const label = new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.5 });
   const crimp = new THREE.MeshStandardMaterial({ color: 0xcfd6de, roughness: 0.3, metalness: 0.6 });
-  const pillow = part(new THREE.SphereGeometry(0.2, 20, 14), foil, 0.32, bag);
+  const pillow = part(new THREE.SphereGeometry(0.2, 20, 14), foil, 0.4, bag);
   pillow.scale.set(1.15, 1.45, 0.75);
-  const badge = part(new THREE.CircleGeometry(0.11, 20), label, 0.32, bag);
+  const badge = part(new THREE.CircleGeometry(0.11, 20), label, 0.4, bag);
   badge.position.z = 0.15;
-  part(new THREE.BoxGeometry(0.34, 0.035, 0.05), crimp, 0.02, bag);
-  part(new THREE.BoxGeometry(0.34, 0.035, 0.05), crimp, 0.62, bag);
+  part(new THREE.BoxGeometry(0.34, 0.035, 0.05), crimp, 0.7, bag);
+  // He holds it by the bottom, twisted shut like a balloon (it doesn't blow
+  // up with the bag, so the bag never swallows his hand).
+  const neck = part(new THREE.CylinderGeometry(0.032, 0.016, 1, 10).translate(0, 0.5, 0), foil, -0.03, group);
+  part(new THREE.TorusGeometry(0.019, 0.008, 6, 14).rotateX(Math.PI / 2), crimp, -0.025, group);
   group.scale.setScalar(1.5); // balloon-sized
-  return {
-    object: group,
-    setGlow(v) {
-      bag.scale.set(0.45 + 0.9 * v, 0.6 + 0.8 * v, 0.3 + 0.9 * v);
-    },
+  const set = (v) => {
+    const sy = 0.6 + 0.8 * v;
+    bag.scale.set(0.45 + 0.9 * v, sy, 0.3 + 0.9 * v);
+    neck.scale.y = 0.11 * sy + 0.06; // up into the bottom of the bag
   };
+  set(0);
+  return { object: group, setGlow: set };
 }
 
 // ---- Eli ----
@@ -586,7 +590,7 @@ const GRIPS = {
   cookie: { style: 'palm', r: 0.015, y: 0.075 },
   donut: { style: 'palm', r: 0.03, y: 0.085 },
   pizza: { style: 'palm', r: 0.012, y: 0.12 },
-  chipBag: { style: 'fist', r: 0.03, y: 0.03 },
+  chipBag: { style: 'fist', r: 0.028, y: 0.01 },
   phone: { style: 'palm', r: 0.007, y: -0.07 },
   selfieStick: { style: 'fist', r: 0.018, y: 0, clear: false },
   insulinPen: { style: 'fist', r: 0.017, y: 0.02 },
@@ -600,6 +604,7 @@ const GRIPS = {
 const _box = new THREE.Box3();
 const _v = new THREE.Vector3();
 const PROFILE_BINS = 6;
+export const RING_STEP = 0.01;
 
 export function createProp(name) {
   const make = MAKERS[name];
@@ -617,16 +622,31 @@ export function createProp(name) {
     const top = _box.max.y;
     const bottom = _box.min.y;
     const profile = new Array(PROFILE_BINS).fill(0);
+    // rings: the same at 1 cm steps, for closing fingers on it (each part
+    // counts as its widest over its whole height: a cylinder only has
+    // vertices at its ends, and a button on one side becomes a ring).
+    const rings = new Array(Math.max(1, Math.ceil((top - bottom) / RING_STEP))).fill(0);
     prop.object.traverse((o) => {
       if (!o.isMesh) return;
       const pos = o.geometry.attributes.position;
+      let lo = Infinity;
+      let hi = -Infinity;
+      let wide = 0;
       for (let i = 0; i < pos.count; i++) {
         _v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
         const bin = Math.min(PROFILE_BINS - 1, Math.max(0, Math.floor(((_v.y - bottom) / (top - bottom || 1)) * PROFILE_BINS)));
-        profile[bin] = Math.max(profile[bin], Math.hypot(_v.x, _v.z));
+        const r = Math.hypot(_v.x, _v.z);
+        profile[bin] = Math.max(profile[bin], r);
+        lo = Math.min(lo, _v.y);
+        hi = Math.max(hi, _v.y);
+        wide = Math.max(wide, r);
+      }
+      for (let b = Math.floor((lo - bottom) / RING_STEP); b <= Math.floor((hi - bottom) / RING_STEP); b++) {
+        if (b >= 0 && b < rings.length) rings[b] = Math.max(rings[b], wide);
       }
     });
-    prop.extent = { top, bottom, profile };
+    // box: its bounds, for closing fingers on flat things held on the palm.
+    prop.extent = { top, bottom, profile, rings, box: _box.clone() };
   }
   return prop;
 }

@@ -60,8 +60,9 @@ export class FighterView {
     this.dressUp(null);
 
     // The outfit picked on the character select, or their usual model.
+    // `ready` resolves once it's in (or right away for the stand-in figure).
     const model = fighter.look?.model ?? fighter.character.model;
-    if (model) this.tryLoadModel(model);
+    this.ready = model ? this.tryLoadModel(model) : Promise.resolve();
     for (const url of fighter.character.preload ?? []) loadModel(url); // e.g. Byron's Lambo
   }
 

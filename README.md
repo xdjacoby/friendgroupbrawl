@@ -17,6 +17,16 @@ Open the URL it prints (usually http://localhost:5173). `npm run dev` also print
 
 `npm run build` produces a static `dist/` folder you can host anywhere or open with `npm run preview`.
 
+## Picking characters
+
+The menu works like Smash's character select: everyone's face is along the top, and each player has a card underneath showing who they've got.
+
+- **Mouse:** a coin with your player number follows the pointer over the faces. Hover over someone to see them on your card, click to pick them. To pick for someone else (like a CPU), click their card or their coin on a face, then click a character. Click an empty card to add a CPU. **?** is Random: someone different every match.
+- **Keyboard / gamepad:** each player has their own cursor. Left/right moves it, attack (F, or , for the arrow keys) or A on a gamepad picks.
+- Pick controls (keyboard, gamepad, CPU, off) from the menu at the top of each card, and outfits and extras with the arrows at the bottom. **Enter** (or **Start** on a gamepad) begins the fight.
+
+The pictures are rendered from each friend's own 3D model the first time the menu opens, so new friends and outfits get one automatically.
+
 ## How to play
 
 Knock opponents off the stage. Hits raise their damage %, and the higher it is, the farther they fly. Last one with stocks left wins.
@@ -131,7 +141,7 @@ Chronically online, fluent in brainrot. Built like Velma from MultiVersus: speec
 
 | Special | Move | What it does |
 |---|---|---|
-| Neutral | **Brainrot** | Shouts a speech bubble (hold up or down to aim it). They come in order: **NEEGY** (fast and straight), **GUCCI MORTY** (big, slow, hangs around and hits a few times, and **eats other people's projectiles**), **KIRK** (short range, bonks hard, then **bursts into three little kirks**), **FUNKY EHH** (wobbles out and **comes back like a boomerang**, hitting again on the way). Every hit builds clout and gives them a stack of **brainrot**: three stacks and they're **BRAINROTTED**, their left and right swap for 3 seconds. |
+| Neutral | **Brainrot** | Shouts a speech bubble (hold up or down to aim it). They come in order: **NEEGY** (fast and straight), **GUCCI MORTY** (big, slow, hangs around and hits a few times, and **eats other people's projectiles**), **KIRK** (short range, bonks hard, then **bursts into three little kirks**), **FUNKY EHH** (wobbles out and **comes back like a boomerang**, hitting again on the way). Every hit builds clout and gives them a stack of **brainrot**: three stacks and they're **BRAINROTTED**, their left and right swap for 2 seconds (no new stacks while that lasts). |
 | Side | **Hit the Griddy** | Hold the button to hype it up (he griddies in place), let go to griddy across the stage into them. Charged past halfway it's the strong version. Builds clout. |
 | Up | **Subway Surfers** | Pulls out a hoverboard and surfs off in whatever direction you hold (straight up if you don't), **steering as he goes**, leaving a trail of coins. Hits on takeoff and along the ride. His recovery. |
 | Down | **Doomscroll** / **FBI OPEN UP** | Stares at his phone for as long as you hold the button, building clout (wide open while he does). When clout hits 100% (📈VIRAL), down special on the ground **calls the FBI**: a black van tears across the stage from behind him and runs over everyone in its way. Uses up all his clout. |
@@ -223,6 +233,8 @@ tools/
   prep_lambo.py  turns the Sketchfab Aventador into Byron's game-ready Lambo
 src/
   main.js      menu, match flow, game loop (fixed 60 fps simulation)
+  select.js    the character select (portraits, player cards, mouse and controller cursors)
+  portraits.js renders the character select pictures from the 3D models
   game.js      a single match: hit detection, stage collision, camera, KOs
   fighter.js   fighter physics + state machine (jumping, attacks, hitstun, shield)
   moves.js     default frame data for every move: tweak damage/knockback here
@@ -257,5 +269,4 @@ src/
 - More stages (different people's dorm rooms, other buildings on campus)
 - Items
 - Sound effects and music
-- Character select portraits taken from the scans
 - Online play (WebRTC peer-to-peer with rollback netcode)

@@ -80,7 +80,7 @@ export class VictoryScene {
     const key = new THREE.DirectionalLight(0xfff3dc, 2.4);
     key.position.set(3, 8, 7);
     key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(2048, 2048); // seen up close: crisp shadows are cheap with this few things in the scene
     Object.assign(key.shadow.camera, { left: -6, right: 6, top: 6, bottom: -2, near: 1, far: 30 });
     this.scene.add(key);
 

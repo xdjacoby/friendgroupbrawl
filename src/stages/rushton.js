@@ -20,10 +20,12 @@ export function createRushton() {
       { x: main.x1, y: main.top, dir: -1, platform: main, holder: null },
       { x: main.x2, y: main.top, dir: 1, platform: main, holder: null },
     ],
+    // Low enough that everyone's first jump reaches the sides (the lowest
+    // full hop tops out at ~2.7 m), and the roof from a side platform.
     platforms: [
-      { x1: -6.1, x2: -3.7, y: 2.4, passThrough: true }, // RUSH
-      { x1: 3.7, x2: 6.1, y: 2.4, passThrough: true }, // TON
-      { x1: -2.8, x2: 2.8, y: 4.7, passThrough: true }, // the canopy roof
+      { x1: -6.1, x2: -3.7, y: 2.0, passThrough: true }, // RUSH
+      { x1: 3.7, x2: 6.1, y: 2.0, passThrough: true }, // TON
+      { x1: -2.8, x2: 2.8, y: 4.0, passThrough: true }, // the canopy roof
     ],
     blast: { left: -20, right: 20, top: 16, bottom: -10 },
     respawnY: 8.5,
@@ -349,22 +351,28 @@ export function buildRushton(stage, scene) {
 
   // Along the back of the plaza: snow banks, the lamp post, a bare tree, a snowman.
   for (const [x, s] of [[-6.4, 1.2], [-3.2, 0.9], [2.1, 1.0], [6.3, 1.3]]) snowBank(plaza, x, -1.6, s, snow, rnd);
-  lampPost(plaza, -5.2, -1.4, dark, new THREE.MeshBasicMaterial({ color: 0xfff1b8 }));
+  lampPost(plaza, -6.75, -1.4, dark, new THREE.MeshBasicMaterial({ color: 0xfff1b8 }));
   bareTree(plaza, 4.6, -1.7, 1.15, toon(0x4a372c), rnd);
   snowman(plaza, -2.3, -1.25, snow, toon(0x1e1e22), toon(0xff8a1f), toon(0xd9363e));
   mergeStatic(plaza, { receive: true });
 
   // ---- Side platforms: floating chunks of the sign wall, RUSH and TON ----
+  // A thin snowy ledge to stand on, with the sign block hanging under its
+  // back half: the platforms are low enough that people walk underneath,
+  // and they pass in front of the sign instead of through it.
   const [left, right, roof] = stage.platforms;
   for (const [p, text] of [[left, 'RUSH'], [right, 'TON']]) {
     const g = new THREE.Group();
     const w = p.x2 - p.x1;
     const cx = (p.x1 + p.x2) / 2;
-    ink(place(new RoundedBoxGeometry(w, 0.75, 1.9, 2, 0.05), stone, cx, p.y - 0.42, 0, g), 0.045);
+    const front = -0.32; // the sign's face, just behind the fighters
+    const back = -1.0;
+    const bz = (front + back) / 2;
+    ink(place(new RoundedBoxGeometry(w, 0.72, front - back, 2, 0.05), stone, cx, p.y - 0.46, bz, g), 0.045);
     // The sign's letters on the front face.
-    place(new THREE.PlaneGeometry(w - 0.12, 0.6), toon(0xffffff, { map: signTexture(text) }), cx, p.y - 0.44, 0.956, g);
-    snowCap(p.x1 - 0.08, p.x2 + 0.08, p.y + 0.02, 1.95, snow, g, { drips: 5, thick: 0.1 });
-    icicles(p.x1 + 0.15, p.x2 - 0.15, p.y - 0.8, 0.9, ice, g, rnd, 7);
+    place(new THREE.PlaneGeometry(w - 0.12, 0.58), toon(0xffffff, { map: signTexture(text) }), cx, p.y - 0.47, front + 0.006, g);
+    snowCap(p.x1 - 0.08, p.x2 + 0.08, p.y + 0.02, 1.95, snow, g, { drips: 14, thick: 0.08 });
+    icicles(p.x1 + 0.15, p.x2 - 0.15, p.y - 0.82, front + 0.04, ice, g, rnd, 7);
     scene.add(g);
     mergeStatic(g, { receive: true });
   }
