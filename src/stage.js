@@ -107,11 +107,15 @@ export function mergeStatic(root, { receive = false, cast = false } = {}) {
 // The scenery never hides a fighter. The stage's front edge sticks out ~2 m
 // toward the camera, so seen from the middle of the screen it used to cover
 // whoever hung on a ledge (or recovered just under it). Every scenery
-// material draws its depth `meters` farther back along the line of sight:
-// nothing moves on screen and the scenery still sorts itself the same way,
-// but fighters, hits and projectiles always end up in front of it.
+// material writes its depth as if it were SCENERY_DEPTH times farther from
+// the camera (the whole scenery scaled about the camera: nothing moves on
+// screen, flat walls stay flat, the scenery sorts itself the same way), so
+// fighters, hits and projectiles always end up in front of it. At the
+// closest zoom (14 m) that puts the front edge ~3.5 m behind the fighters.
+// The camera's far plane has to grow by the same factor (Game does that).
+export const SCENERY_DEPTH = 1.3;
 const pushedBack = new WeakSet();
-export function keepBehindFighters(root, meters = 3) {
+export function keepBehindFighters(root) {
   root.traverse((o) => {
     const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
     for (const m of mats) {
@@ -122,10 +126,12 @@ export function keepBehindFighters(root, meters = 3) {
       const key = m.customProgramCacheKey === THREE.Material.prototype.customProgramCacheKey ? () => before.toString() : m.customProgramCacheKey.bind(m);
       m.onBeforeCompile = (shader, renderer) => {
         before.call(m, shader, renderer);
+        // Depth of the point SCENERY_DEPTH times as far along its ray; x, y
+        // and w stay, so it lands on the same pixel.
         shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', /* glsl */ `#include <project_vertex>
-          gl_Position = projectionMatrix * vec4(mvPosition.xyz + normalize(mvPosition.xyz) * ${meters.toFixed(2)}, 1.0);`);
+          gl_Position.z -= projectionMatrix[3][2] * ${(1 - 1 / SCENERY_DEPTH).toFixed(5)};`);
       };
-      m.customProgramCacheKey = () => `${key()}|behind${meters}`;
+      m.customProgramCacheKey = () => `${key()}|behind`;
       m.needsUpdate = true;
     }
   });

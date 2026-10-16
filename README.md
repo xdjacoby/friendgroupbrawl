@@ -77,11 +77,13 @@ Only one fighter can hang on a ledge at a time, and after 5 seconds you let go.
 
 **Winning**: the last one standing gets a Smash-style victory screen. The camera swoops in from a wide shot of SUNY Canton to the winner, who does their own victory animation on a podium on a floating chunk of campus plaza high above the quad, while everyone else claps. Light rays burst behind them, a spotlight shines down, confetti falls, and at sunset or night fireworks go off over campus. The time of day is random (or, after a match on the SUNY Canton stage, whatever time it was when the match ended).
 
-**Cosmetics**: each player card has two pickers under the character. **👕 Outfit** switches between that friend's models (Byron has a second fit; more show up as they're added, see below). **🧢 Extra** adds a beanie, a backwards cap, shades, a gold chain, a crown or a halo, sized to fit whoever wears it. Picks are remembered.
+**Cosmetics**: each player card has two pickers under the character. **👕 Outfit** switches between that friend's models: Eli's **The Bender**, Jacoby's **The Comfort**, Byron's **The Larp** and Andrew's second fit (more show up as they're added, see below). Some outfits have their own victory quote (The Bender: "Nah, you can't join the frat."; The Larp: "You could never out-larp me."). **🧢 Extra** adds a beanie, a backwards cap, shades, a gold chain, a crown or a halo, sized to fit whoever wears it. Picks are remembered.
+
+**The look**: the friends are drawn the same way as the world around them: cel shaded (flat bands of light like a cartoon), with the same dark ink outline as the scenery, and their edges catch the color of the stage's air (pale blue on a snow day, orange at sunset). The scenery never covers a fighter, so someone hanging on a ledge or recovering under the stage stays in sight.
 
 **Stages**: pick one under the player cards (click the picture or the arrows):
 - **Sky Island**: the original floating island.
-- **Rushton Hall**: a snow day in front of the dorm. The real building is the backdrop (from a photo, made cartoony when the stage loads), with the entrance canopy's roof as the top platform, two snowy chunks of the RUSHTON sign as the side platforms, a snowman, the lamp post, icicles and falling snow.
+- **Rushton Hall**: a snow day in front of the dorm, built in 3D from the photo and seen from about where it was taken. You fight on the plaza at the entrance: the swooping teal-and-maroon canopy over the glass doors (with the lobby behind them), the stone planters, the stucco wing with the RUSHTON sign, the block wall with its frozen drip, the lamp post, big plowed snowbanks, and the dorm's stepped residence towers behind. The canopy's steel truss beam is the top platform and two snowy bike shelters are the side ones. The plaza sits on the edge of the bluff, so falling off drops past the rock into the mist.
 - **SUNY Canton**: Battlefield over campus. A floating brick-plaza platform with three floating slabs, hovering above the main quad with the whole campus around it, built from real survey data: the buildings at their measured heights (windows and all), the real hills and the bluff down to the Grasse River, every tree where it really stands (in fall colors), lawns, paths, parking lots full of cars, out to the farms and the Adirondack foothills. The day goes by during the match: morning, sunset, then night with the windows and lamps lit and stars out.
 
 **Menu options**: **Graphics** (Auto lowers the resolution a little whenever the frame rate dips, then raises it back; Fast is for older laptops: lower resolution, no shadows), **Voices** (voicelines on/off) and **Show FPS** (a frame-rate counter in the corner).
@@ -219,6 +221,8 @@ Upload the file under the name the character file uses (e.g. `draven.glb`, `jaco
 
 Any model in `public/models/` whose name starts with a friend's id is one of their outfits, and it shows up in the 👕 Outfit picker by itself: `byroncos1.glb` is Byron's second fit, so the next one can be `byroncos2.glb` (or `byron-hoodie.glb`, which shows as "Hoodie"). The ids are `draven`, `jacoby`, `eli`, `andrew` and `byron`. Steps 1–3 above still apply: the model needs a skeleton (rig it in Meshy, or upload it as is and ask Claude to rig it) and has to be under 25 MB. Hands, hats and Andrew's CGM fit themselves to every new model.
 
+To give an outfit a name and its own victory quote, add it to the friend's file in `src/characters/` (`outfits: { 'elicos1.glb': { name: 'The Bender', quote: "Nah, you can't join the frat." } }`), or just tell Claude the name and the line.
+
 **Voicelines:** drop audio clips into [`voicelines/<friend>/`](voicelines/README.md) named after when they should play (`victory.mp3`, `ko.mp3`, `nspecial.mp3`, ...). See [voicelines/README.md](voicelines/README.md) for the full list.
 
 ## Project layout
@@ -249,6 +253,7 @@ src/
   stages/      other stages (rushton.js: Rushton Hall, canton.js: SUNY Canton and the floating islands)
   campus.js    the SUNY Canton campus, sky and countryside (the victory screen's and SUNY Canton's backdrop)
   view.js      fighter visuals (placeholder figure or loaded GLB model)
+  look.js      the friends' cartoon look: cel shading, ink outline, the stage's air on their edges
   poses.js     procedural poses for idle, jumping, attacks, getting hit
   puppet.js    drives a rigged model's skeleton from those poses (and closes the hands around props)
   rig.js       measures each model's hands, body and head when it loads
@@ -265,7 +270,7 @@ src/
 ## Credits
 
 - Fonts (all [SIL Open Font License](https://openfontlicense.org), bundled through [Fontsource](https://fontsource.org)): [Bangers](https://fonts.google.com/specimen/Bangers) by Vernon Adams, [Luckiest Guy](https://fonts.google.com/specimen/Luckiest+Guy) by Astigmatic, [Fredoka](https://fonts.google.com/specimen/Fredoka) by Milena Brandão.
-- Rushton Hall backdrop: a photo of the real building.
+- Rushton Hall: modeled after a photo of the real building (the photo is the stage picker's thumbnail).
 - SUNY Canton campus layout: from [OpenStreetMap](https://www.openstreetmap.org/copyright) data, © OpenStreetMap contributors, available under the [Open Database License](https://opendatacommons.org/licenses/odbl/).
 - SUNY Canton terrain, building heights and trees: USGS 3D Elevation Program lidar (public domain), via the [USGS lidar on AWS](https://registry.opendata.aws/usgs-lidar/); countryside elevation from the [Terrain Tiles on AWS](https://registry.opendata.aws/terrain-tiles/) (USGS 3DEP and other public sources); building names and the river from [Overture Maps](https://overturemaps.org) (which includes OpenStreetMap data, ODbL).
 - Byron's Lamborghini: ["Lamborghini Aventador SVJ SDC (FREE)"](https://sketchfab.com/3d-models/lamborghini-aventador-svj-sdc-free-784e4656aca649cca55d6b18740a19b2) by [SDC PERFORMANCE](https://sketchfab.com/Lambo_SC04), licensed [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Changed for the game: roof and side windows removed, simplified, recolored lights and trim, resized ([`tools/prep_lambo.py`](tools/prep_lambo.py)).

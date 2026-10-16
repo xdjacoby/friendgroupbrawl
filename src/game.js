@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Fighter } from './fighter.js';
 import { SHOCKWAVE, hitboxPos } from './moves.js';
 import { stageById } from './stages.js';
-import { keepBehindFighters } from './stage.js';
+import { keepBehindFighters, SCENERY_DEPTH } from './stage.js';
 import { FighterView } from './view.js';
 import { Effects } from './effects.js';
 import { Hud } from './hud.js';
@@ -60,6 +60,8 @@ export class Game {
       this.camera.updateProjectionMatrix();
     }
     keepBehindFighters(this.scene); // (only scenery is in the scene so far)
+    this.camera.far *= SCENERY_DEPTH; // it draws its depth farther out
+    this.camera.updateProjectionMatrix();
     this.rim = where.rim ?? 0xcfe6ff; // the air's color on the fighters' edges (look.js)
     this.effects = new Effects(this.scene);
 
