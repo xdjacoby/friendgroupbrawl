@@ -88,7 +88,7 @@ export function mergeStatic(root, { receive = false, cast = false } = {}) {
   for (const o of meshes) {
     const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
-    const keep = o.material.map ? ['position', 'normal', 'uv'] : ['position', 'normal'];
+    const keep = ['position', 'normal', ...(o.material.map ? ['uv'] : []), ...(o.material.vertexColors ? ['color'] : [])];
     for (const name of Object.keys(g.attributes)) if (!keep.includes(name)) g.deleteAttribute(name);
     if (!g.attributes.normal) g.computeVertexNormals();
     if (!buckets.has(o.material)) buckets.set(o.material, []);
@@ -118,11 +118,14 @@ export function keepBehindFighters(root, meters = 3) {
       if (pushedBack.has(m)) continue;
       pushedBack.add(m);
       const before = m.onBeforeCompile;
+      // Keep its program apart from unpatched materials of the same kind.
+      const key = m.customProgramCacheKey === THREE.Material.prototype.customProgramCacheKey ? () => before.toString() : m.customProgramCacheKey.bind(m);
       m.onBeforeCompile = (shader, renderer) => {
         before.call(m, shader, renderer);
         shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', /* glsl */ `#include <project_vertex>
           gl_Position = projectionMatrix * vec4(mvPosition.xyz + normalize(mvPosition.xyz) * ${meters.toFixed(2)}, 1.0);`);
       };
+      m.customProgramCacheKey = () => `${key()}|behind${meters}`;
       m.needsUpdate = true;
     }
   });
