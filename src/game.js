@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import { Fighter } from './fighter.js';
 import { SHOCKWAVE, hitboxPos } from './moves.js';
 import { stageById } from './stages.js';
+import { keepBehindFighters } from './stage.js';
 import { FighterView } from './view.js';
 import { Effects } from './effects.js';
 import { Hud } from './hud.js';
 import { SLOT_COLORS } from './roster.js';
 import { createProp } from './props.js';
 import { voice } from './voice.js';
+import { setAtmosphere } from './look.js';
 
 const END_DELAY = 120; // frames to linger after the final KO
 
@@ -52,6 +54,8 @@ export class Game {
     const where = stageById(stage);
     this.stage = where.create();
     this.stageView = where.build(this.stage, this.scene);
+    keepBehindFighters(this.scene); // (only scenery is in the scene so far)
+    setAtmosphere(where.rim ?? 0xcfe6ff);
     this.effects = new Effects(this.scene);
 
     this.fighters = players.map((p, i) => new Fighter({
@@ -609,7 +613,7 @@ export class Game {
     maxY = Math.min(maxY, b.top - 1);
 
     const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2 - 1.2; // aim low so the HUD sits over the void, not the stage
+    const cy = (minY + maxY) / 2 - 0.6; // aim a bit low so the HUD sits over the void, not the stage
     const aspect = this.camera.aspect;
     const vFov = (this.camera.fov * Math.PI) / 180;
     const needH = Math.max(maxY - minY + 4, (maxX - minX + 5) / aspect);
@@ -692,7 +696,7 @@ export class Game {
       const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
       for (const m of mats) {
         if (!o.userData.cached) m.map?.dispose();
-        m.dispose();
+        if (!m.userData.shared) m.dispose(); // e.g. the fighters' outline, used by every match
       }
     });
   }

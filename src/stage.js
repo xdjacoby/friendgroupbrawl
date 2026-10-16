@@ -78,7 +78,8 @@ export function ink(mesh, width = 0.05) {
 // Scenery that never moves (relative to `root`) is hundreds of small meshes;
 // drawing each one separately is what slows the frame down. Bake them into one
 // mesh per material (all the outlines become a single mesh, and so on).
-export function mergeStatic(root, { receive = false } = {}) {
+// `cast`: the merged meshes cast shadows too (a few big pieces, like a roof).
+export function mergeStatic(root, { receive = false, cast = false } = {}) {
   root.updateMatrixWorld(true);
   const inv = root.matrixWorld.clone().invert();
   const meshes = [];
@@ -97,9 +98,34 @@ export function mergeStatic(root, { receive = false } = {}) {
   for (const [material, geos] of buckets) {
     const mesh = new THREE.Mesh(mergeGeometries(geos), material);
     mesh.receiveShadow = receive && material !== INK_MAT;
+    mesh.castShadow = cast && material !== INK_MAT && !material.transparent;
     root.add(mesh);
     for (const g of geos) g.dispose();
   }
+}
+
+// The scenery never hides a fighter. The stage's front edge sticks out ~2 m
+// toward the camera, so seen from the middle of the screen it used to cover
+// whoever hung on a ledge (or recovered just under it). Every scenery
+// material draws its depth `meters` farther back along the line of sight:
+// nothing moves on screen and the scenery still sorts itself the same way,
+// but fighters, hits and projectiles always end up in front of it.
+const pushedBack = new WeakSet();
+export function keepBehindFighters(root, meters = 3) {
+  root.traverse((o) => {
+    const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+    for (const m of mats) {
+      if (pushedBack.has(m)) continue;
+      pushedBack.add(m);
+      const before = m.onBeforeCompile;
+      m.onBeforeCompile = (shader, renderer) => {
+        before.call(m, shader, renderer);
+        shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', /* glsl */ `#include <project_vertex>
+          gl_Position = projectionMatrix * vec4(mvPosition.xyz + normalize(mvPosition.xyz) * ${meters.toFixed(2)}, 1.0);`);
+      };
+      m.needsUpdate = true;
+    }
+  });
 }
 
 // mesh(geometry, material, x, y, z, parent) with shadows on.

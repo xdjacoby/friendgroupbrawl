@@ -6,6 +6,8 @@ import { SLOT_COLORS } from './roster.js';
 import { createProp } from './props.js';
 import { keyframes } from './poses.js';
 import { REST } from './moves.js';
+import { outfitsFor } from './cosmetics.js';
+import { setAtmosphere } from './look.js';
 
 // The victory screen: the winner on a podium doing their victory animation,
 // everyone else clapping behind them, confetti. Characters define it as
@@ -72,10 +74,13 @@ export class VictoryScene {
     this.time = 0;
     this.acc = 0;
     const winner = ranked[0];
+    this.winner = winner;
     this.victory = winner.character.victory ?? FIST_PUMP;
     this.slotColors = ranked.map((f) => new THREE.Color(SLOT_COLORS[f.slot]).getHex());
 
     this.scene.background = backdrop(winner.character.color);
+    // Everyone's edges catch the backdrop's light.
+    setAtmosphere(new THREE.Color(winner.character.color).lerp(new THREE.Color(0xffffff), 0.55), 0.45);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x444466, 1.4));
     const key = new THREE.DirectionalLight(0xfff3dc, 2.4);
     key.position.set(3, 8, 7);
@@ -145,8 +150,11 @@ export class VictoryScene {
     });
   }
 
+  // Some outfits have their own line (Eli as The Bender...).
   get quote() {
-    return this.victory.quote ?? '';
+    const { character, look } = this.winner;
+    const outfit = look?.model && outfitsFor(character).find((o) => o.model === look.model);
+    return outfit?.quote ?? this.victory.quote ?? '';
   }
 
   render(dt) {
@@ -187,7 +195,7 @@ export class VictoryScene {
       const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
       for (const m of mats) {
         if (!o.userData.cached && !m.map?.userData.cached) m.map?.dispose();
-        m.dispose();
+        if (!m.userData.shared) m.dispose();
       }
     });
   }

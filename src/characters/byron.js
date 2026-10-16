@@ -105,6 +105,10 @@ export const BYRON = {
   tagline: 'Knows everything. Knows nothing.',
   color: 0x9be22d,
   model: 'models/byron.glb',
+  // Outfit names and their victory quotes (see cosmetics.js).
+  outfits: {
+    'byroncos1.glb': { name: 'The Larp', quote: 'You could never out-larp me.' },
+  },
   props: { right: 'earbuds' },
   preload: ['models/lambo.glb'], // his Lamborghini (see props.js)
   stats: { weight: 100, runSpeed: 7.8, airSpeed: 6.2, jump: 15, gravity: 40, maxFall: 14.5, power: 1.02, scale: 1.0 },

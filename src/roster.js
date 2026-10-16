@@ -21,7 +21,9 @@ import { BYRON } from './characters/byron.js';
 //   power       multiplier on all damage dealt
 //   scale       visual + hurtbox size multiplier
 //
-// Optional: moves (replace any move from moves.js), poses (override idle etc.;
+// Optional: outfits ({ 'byroncos1.glb': { name, quote } }: an outfit's name on
+// the character select and its own victory quote, see cosmetics.js),
+// moves (replace any move from moves.js), poses (override idle etc.;
 // `base` applies everywhere), props ({ right: 'bong', left: 'dabPen' }, see
 // props.js), hud(f) (a status line under the name on the HUD), cpu(f, info)
 // (extra CPU habits, see jacoby.js), update(f, world) (runs every frame, e.g.

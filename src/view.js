@@ -8,6 +8,7 @@ import { prepareModel } from './rig.js';
 import { ACCESSORIES, dress } from './cosmetics.js';
 import { FONTS } from './fonts.js';
 import { bubbleTexture } from './effects.js';
+import { celMaterial, outline } from './look.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const NEG_Y = new THREE.Vector3(0, -1, 0);
@@ -241,8 +242,8 @@ export class FighterView {
     }
 
     // Files exported without materials/textures get a clay look tinted with the character color.
-    // Textured ones get their own copy of each material so hit flashes don't
-    // light up every fighter using the same model.
+    // Textured ones get their own material so hit flashes don't light up
+    // every fighter using the same model.
     const untextured = !gltf.parser.json.materials?.length;
     const clay = untextured && new THREE.MeshStandardMaterial({
       color: new THREE.Color(0xd8c8b8).lerp(new THREE.Color(this.f.character.color), 0.3),
@@ -253,13 +254,16 @@ export class FighterView {
     const holder = new THREE.Group();
     holder.rotation.y = Math.PI / 2; // glTF faces +z; gameplay "forward" is +x
     holder.add(model);
+    const meshes = [];
     model.traverse((o) => {
       o.userData.cached = true; // geometry and textures are shared with the model cache
       if (o.isMesh) {
+        meshes.push(o);
         o.castShadow = true;
         o.frustumCulled = false; // skinned bounds don't follow procedural poses
-        if (clay) o.material = clay;
-        else o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+        // Cel shaded like the scenery (look.js), one copy per fighter.
+        if (clay) o.material = celMaterial(clay);
+        else o.material = Array.isArray(o.material) ? o.material.map(celMaterial) : celMaterial(o.material);
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         // Scans export as fully metallic, which renders dark and muddy with no
         // reflections around. People aren't metal.
@@ -274,6 +278,7 @@ export class FighterView {
         for (const mat of mats) if (mat.emissive && !this.materials.includes(mat)) this.materials.push(mat);
       }
     });
+    for (const mesh of meshes) outline(mesh); // ink lines around them, like the scenery's
 
     this.body.remove(this.rig);
     this.materials = this.materials.filter((m) => !this.placeholderMaterials.includes(m));
