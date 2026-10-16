@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { toon, ink, mergeStatic, place, seeded, paint } from '../stage.js';
+import { toon, ink, mergeStatic, place, seeded, paint, FRONT } from '../stage.js';
 
 // Rushton Hall: a fall afternoon out front of the dorm, built in 3D from the
 // owner's photo (public/stages/rushton-hall.jpg, also the stage picker's
@@ -444,13 +444,17 @@ function hazeTexture() {
 
 // ---- The canopy ----
 // A symmetric arch: its front edge rises from 4.75 m at the ends (x ±4.4)
-// to 6.55 m in the middle. Front edge at z = -0.5, back into the building
+// to 6.55 m in the middle. Front edge at z = 0.15, back into the building
 // at z = -6.3.
-const ROOF = { half: 4.4, spring: 4.75, apex: 6.55, front: -0.5, back: -6.3, thick: 0.45 };
+const ROOF = { half: 4.4, spring: 4.75, apex: 6.55, front: 0.15, back: -6.3, thick: 0.45 };
 const ROOF_R = (ROOF.half ** 2 + (ROOF.apex - ROOF.spring) ** 2) / (2 * (ROOF.apex - ROOF.spring));
 const roofY = (x) => ROOF.apex - ROOF_R + Math.sqrt(ROOF_R ** 2 - Math.min(x * x, ROOF.half ** 2));
 const COLUMN_X = 2.95; // the front columns, at the beam's ends
-const COLUMN_Z = -0.85;
+// The truss, its columns and their planters, just behind the fighters: the
+// truss's bottom chord is the top platform, so it has to be where they stand
+// (the camera looks straight on; a beam farther back looked like they were
+// floating over it).
+const COLUMN_Z = -0.2;
 const GLASS_Z = -6.0;
 
 // A slab that follows the roof curve, `bottom`..`top` above the roof line, from z1 to z2.
@@ -837,7 +841,7 @@ export function buildRushton(stage, scene) {
   const land = new THREE.Group();
   scene.add(land);
   const main = stage.main;
-  const front = 2.1;
+  const front = FRONT;
   const edge = -2.6; // where the lawns beyond the stage's edges stop
   ground(main.x1 + 0.28, main.x2 - 0.28, edge, front - 0.3, 0, m.plaza, land);
   ground(-4.6, 4.6, GLASS_Z - 0.2, edge, 0, m.plaza, land);
@@ -863,14 +867,14 @@ export function buildRushton(stage, scene) {
   underGeo.translate(0, 0, edge + 0.3);
   ink(place(meterUV(underGeo), m.rock, 0, 0, 0, land), 0.06);
   // The bluff's edge all along, set back behind the fighters: stone, then
-  // rock down into the haze, grass hanging over the top.
-  box(-70, 70, -1.4, -0.01, edge - 4, edge, m.stone, land, 0.06);
+  // rock down into the haze, grass hanging over the top. Seen straight on its
+  // stone is level with the stage's, so it's darker and hazier (farther off)
+  // and only the stage has the light coping: the stage's corners stand out.
+  const farStone = toon(0x9d978e, { map: m.stone.map });
+  box(-70, 70, -1.4, -0.01, edge - 4, edge, farStone, land, 0.06);
   box(-70, 70, -18, -1.4, edge - 4, edge - 0.4, m.rock, land, 0.05);
   for (const [x1, x2] of [[-70, main.x1], [main.x2, 70]]) {
     dripLip(x1, x2, 0.0, 0.3, m.grass, land, { drips: Math.round((x2 - x1) / 0.7), thick: 0.1 }).position.z = edge - 0.12;
-  }
-  for (const [x1, x2, y] of [[-30, -11, -3.2], [-19, -8.2, -6.4], [9, 24, -4.1], [12.5, 30, -7.5], [-6, 5, -7.8]]) {
-    box(x1, x2, y - 0.15, y, edge - 1.2, edge - 0.15, m.grass, land, 0.03);
   }
 
   // Shrubs along the walls, raked leaf piles, the lamp post.

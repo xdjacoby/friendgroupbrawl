@@ -149,7 +149,7 @@ export const JACOBY = {
   // Victory: inspects the camera up close with the magnifying glass, then
   // celebrates with a slice of pizza.
   victory: {
-    quote: 'Case closed. Where are the snacks?',
+    quote: "I'm a fucking detective",
     pose: (frame) => {
       const p = { ...victoryPose(frame) };
       if (frame >= 56) p.lHeld = 'pizza';

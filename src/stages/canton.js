@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { toon, ink, mergeStatic, place, seeded, paint } from '../stage.js';
+import { toon, ink, mergeStatic, place, seeded, paint, FRONT } from '../stage.js';
 import { createCampusWorld } from '../campus.js';
 import { FONTS } from '../fonts.js';
 
@@ -385,7 +385,7 @@ function slab(parent, p, mats) {
   const top = place(new THREE.PlaneGeometry(w - 0.24, 1.56).rotateX(-Math.PI / 2), mats.pavers, 0, 0.004, 0, g);
   top.castShadow = false;
   ink(place(new RoundedBoxGeometry(w - 0.1, 0.1, 0.12, 1, 0.03), mats.trim, 0, -0.17, 0.86, g), 0.02);
-  g.position.set((p.x1 + p.x2) / 2, p.y, 0);
+  g.position.set((p.x1 + p.x2) / 2, p.y, FRONT - 0.9);
   parent.add(g);
   return g;
 }
@@ -399,7 +399,11 @@ export function buildCanton(stage, scene) {
   Object.assign(key.shadow.camera, { left: -16, right: 16, top: 14, bottom: -8, near: 1, far: 70 });
 
   const m = stage.main;
-  const bits = longIsland(scene, m.x1, m.x2, 4);
+  // The island is built around z = 0 (front at 2.1); set it back to FRONT.
+  const ground = new THREE.Group();
+  ground.position.z = FRONT - 2.1;
+  scene.add(ground);
+  const bits = longIsland(ground, m.x1, m.x2, 4);
   const pavers = paverTexture();
   pavers.repeat.set(1.3, 0.75);
   const mats = { stone: toon(0xd8d0c0), trim: toon(0xa2523d), pavers: toon(0xffffff, { map: pavers }) };
@@ -409,7 +413,7 @@ export function buildCanton(stage, scene) {
   scene.add(fixtures);
   for (const p of stage.platforms) slab(fixtures, p, mats);
   const glow = toon(0xfff6dd, { emissive: 0xffd88a, emissiveIntensity: 0 });
-  for (const x of [m.x1 + 0.9, m.x2 - 0.9]) lampPost(fixtures, x, -1.55, glow);
+  for (const x of [m.x1 + 0.9, m.x2 - 0.9]) lampPost(fixtures, x, FRONT - 3.65, glow);
   mergeStatic(fixtures, { receive: true });
   for (const mesh of fixtures.children) mesh.castShadow = mesh.material.side !== THREE.BackSide; // not the outlines
 

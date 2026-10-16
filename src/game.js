@@ -13,6 +13,16 @@ import { setAtmosphere } from './look.js';
 
 const END_DELAY = 120; // frames to linger after the final KO
 
+// The camera never turns: it looks straight at the stage and only pans (x, y)
+// and zooms (moves in and out). The play plane (z = 0) is then a flat
+// picture, so a ledge is exactly where it looks. A narrow lens from farther
+// back keeps the stage's own depth from showing much: it reads as 2D.
+const FOV = 30;
+const OLD_FOV = 40; // what the backdrops' fog was tuned for
+// How much of the play plane fits on screen, top to bottom (meters).
+const MIN_VIEW = 10.2;
+const MAX_VIEW = 30.6;
+
 function circleHitsBox(cx, cy, r, f) {
   const nx = Math.max(f.x - f.hw, Math.min(cx, f.x + f.hw));
   const ny = Math.max(f.y, Math.min(cy, f.y + f.hurtH));
@@ -43,9 +53,10 @@ export class Game {
     this.renderer = renderer;
     this.onEnd = onEnd;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 300);
-    this.camera.position.set(0, 4, 24);
-    this.camTarget = new THREE.Vector3(0, 2, 0);
+    this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 450);
+    this.camera.position.set(0, 1.5, 30);
+    this.camTarget = this.camera.position.clone(); // where it's easing to
+    this.camPos = this.camera.position.clone(); // where it is, before shake
     this.shake = 0;
     this.time = 0;
     this.frame = 0;
@@ -62,6 +73,9 @@ export class Game {
     keepBehindFighters(this.scene); // (only scenery is in the scene so far)
     this.camera.far *= SCENERY_DEPTH; // it draws its depth farther out
     this.camera.updateProjectionMatrix();
+    // The camera stands farther back than the old wide lens did; the fog
+    // moves back with it so the backdrop looks the same.
+    this.fogBase = this.scene.fog?.isFog ? { near: this.scene.fog.near, far: this.scene.fog.far } : null;
     this.rim = where.rim ?? 0xcfe6ff; // the air's color on the fighters' edges (look.js)
     this.effects = new Effects(this.scene);
 
@@ -622,22 +636,27 @@ export class Game {
 
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2 - 0.6; // aim a bit low so the HUD sits over the void, not the stage
-    const aspect = this.camera.aspect;
-    const vFov = (this.camera.fov * Math.PI) / 180;
-    const needH = Math.max(maxY - minY + 4, (maxX - minX + 5) / aspect);
-    const dist = Math.max(14, Math.min(42, needH / (2 * Math.tan(vFov / 2))));
+    const tan = Math.tan((this.camera.fov * Math.PI) / 360);
+    const view = Math.max(MIN_VIEW, Math.min(MAX_VIEW, Math.max(maxY - minY + 4, (maxX - minX + 5) / this.camera.aspect)));
+    const dist = view / (2 * tan);
 
+    // Eased twice (the goal, then the camera toward it) so it starts and
+    // stops gently. Only the position changes: the rotation stays zero.
     const k = Math.min(1, dt * 3);
-    this.camTarget.lerp(new THREE.Vector3(cx, cy, 0), k);
-    const desired = new THREE.Vector3(this.camTarget.x, this.camTarget.y + 1.5, dist);
-    this.camera.position.lerp(desired, k);
-
+    this.camTarget.lerp(new THREE.Vector3(cx, cy, dist), k);
+    this.camPos.lerp(this.camTarget, k);
+    this.camera.position.copy(this.camPos);
     if (this.shake > 0) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
       this.camera.position.y += (Math.random() - 0.5) * this.shake;
       this.shake = Math.max(0, this.shake - dt * 2.5);
     }
-    this.camera.lookAt(this.camTarget);
+
+    if (this.fogBase) {
+      const back = this.camPos.z * (1 - tan / Math.tan((OLD_FOV * Math.PI) / 360));
+      this.scene.fog.near = this.fogBase.near + back;
+      this.scene.fog.far = this.fogBase.far + back;
+    }
   }
 
   // Debug view: hurtboxes (yellow, blue while intangible) and active hitboxes (red).
@@ -666,7 +685,7 @@ export class Game {
       mesh.geometry = this.debugGeo[kind];
       mesh.material.color.setHex(color);
       mesh.material.opacity = opacity;
-      mesh.position.set(x, y, 1.2);
+      mesh.position.set(x, y, 0); // on the play plane (it ignores depth), so it sits right on the fighters
       mesh.scale.set(sx, sy, 1);
     };
     for (const f of this.fighters) {
