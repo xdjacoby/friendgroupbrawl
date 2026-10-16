@@ -172,6 +172,10 @@ export const ELI = {
   tagline: 'Chronically online. Fluent in brainrot.',
   color: 0x25f4ee,
   model: 'models/eli.glb',
+  // Outfit names and their victory quotes (see cosmetics.js).
+  outfits: {
+    'elicos1.glb': { name: 'The Bender', quote: 'Nah, you can\'t join the frat.' },
+  },
   props: { right: 'phone' },
   stats: { weight: 92, runSpeed: 8.3, airSpeed: 6.5, jump: 15.5, gravity: 41, maxFall: 15, power: 0.98, scale: 1.0 },
 

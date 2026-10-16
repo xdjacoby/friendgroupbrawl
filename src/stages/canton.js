@@ -419,6 +419,8 @@ export function buildCanton(stage, scene) {
     camera: { near: 0.5, far: 60000 },
     // The victory screen carries on at the same time of day.
     get timeOfDay() { return START + time / DAY_LENGTH; },
+    // The fighters' edges catch the air's color as the day goes by (look.js).
+    get rim() { return world.palette.haze; },
     update(dt) {
       time += dt;
       // The sky changes slowly: no need to recolor everything every frame.

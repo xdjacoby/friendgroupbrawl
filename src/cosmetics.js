@@ -9,11 +9,14 @@ import MODEL_FILES from 'virtual:model-files';
 // byroncos2.glb or byron-hoodie.glb are more. Nothing else to set up.
 // (A new model still needs a skeleton: rig it in Meshy before downloading,
 // or ask Claude to run tools/autorig.py on it.)
+// A character can name an outfit and give it its own victory quote:
+//   outfits: { 'elicos1.glb': { name: 'The Bender', quote: '...' } }
 
 const title = (s) => s.replace(/[-_]+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase());
 
 export function outfitsFor(character) {
   const list = [{ name: 'Classic', model: character.model }];
+  const named = Object.fromEntries(Object.entries(character.outfits ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   const id = character.id.toLowerCase();
   for (const file of MODEL_FILES) {
     const lower = file.toLowerCase();
@@ -21,7 +24,8 @@ export function outfitsFor(character) {
     const rest = file.slice(id.length).replace(/\.(glb|gltf)$/i, '');
     if (/^[a-z]/i.test(rest) && !/^cos/i.test(rest)) continue; // "elijah.glb" isn't Eli's
     const n = rest.match(/^[-_ ]*cos(?:metic)?[-_ ]*(\d+)$/i);
-    list.push({ name: n ? `Fit #${n[1]}` : title(rest) || file, model: `models/${file}` });
+    const own = named[lower];
+    list.push({ name: own?.name ?? (n ? `Fit #${n[1]}` : title(rest) || file), model: `models/${file}`, quote: own?.quote });
   }
   return list;
 }

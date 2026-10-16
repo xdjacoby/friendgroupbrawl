@@ -125,6 +125,10 @@ export const JACOBY = {
   tagline: 'Magnifying glass + bottomless snacks',
   color: 0xe67e22,
   model: 'models/jacoby.glb',
+  // Outfit names (see cosmetics.js).
+  outfits: {
+    'jacobycos1.glb': { name: 'The Comfort' },
+  },
   props: { right: 'magnifyingGlass' },
   stats: { weight: 100, runSpeed: 8, airSpeed: 6.3, jump: 15, gravity: 40, maxFall: 14.5, power: 1.0, scale: 1.0 },
 

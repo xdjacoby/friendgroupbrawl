@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Fighter } from './fighter.js';
 import { FighterView } from './view.js';
+import { withAtmosphere } from './look.js';
 
 // Pictures for the character select, rendered from each friend's own 3D
 // model in the outfit and extra picked, so a new friend or outfit gets one by
@@ -77,7 +78,8 @@ async function draw(renderer, character, look, kind) {
   renderer.setRenderTarget(rt);
   renderer.setClearColor(0x000000, 0);
   renderer.clear();
-  renderer.render(scene, camera);
+  // Edges lit in their color, like the rim light behind them.
+  withAtmosphere(new THREE.Color(character.color).lerp(new THREE.Color(0xffffff), 0.5), 0.4, () => renderer.render(scene, camera));
   const pixels = new Uint8Array(w * h * 4);
   renderer.readRenderTargetPixels(rt, 0, 0, w, h, pixels);
   renderer.setRenderTarget(null);
@@ -115,7 +117,7 @@ function dispose(scene) {
     const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
     for (const m of mats) {
       if (!o.userData.cached && !m.map?.userData.cached) m.map?.dispose();
-      m.dispose();
+      if (!m.userData.shared) m.dispose();
     }
   });
 }

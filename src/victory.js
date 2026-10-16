@@ -6,6 +6,8 @@ import { SLOT_COLORS } from './roster.js';
 import { createProp } from './props.js';
 import { keyframes } from './poses.js';
 import { REST } from './moves.js';
+import { outfitsFor } from './cosmetics.js';
+import { setAtmosphere } from './look.js';
 import { toon, ink, place, paint, mergeStatic } from './stage.js';
 import { createCampusWorld } from './campus.js';
 import { STAGE_SPOT, roundIsland, lampPost, campusArch } from './stages/canton.js';
@@ -233,6 +235,7 @@ export class VictoryScene {
     this.time = 0;
     this.acc = 0;
     const winner = ranked[0];
+    this.winner = winner;
     this.victory = winner.character.victory ?? FIST_PUMP;
     this.slotColors = ranked.map((f) => new THREE.Color(SLOT_COLORS[f.slot]).getHex());
     const winColor = new THREE.Color(SLOT_COLORS[winner.slot]);
@@ -241,6 +244,8 @@ export class VictoryScene {
     this.world = createCampusWorld(this.scene, { ...SPOT, time: time ?? pickTime(), clear: { radius: 130, top: SPOT.drop - 7, dip: 12, front: 1.3 } });
     const p = this.world.palette;
     this.night = p.lamps; // 0 by day, 1 at night
+    // Everyone's edges catch the color of the air (sunset orange, night blue...).
+    setAtmosphere(p.haze, 0.45);
     const key = this.world.key;
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048); // seen up close: crisp shadows are cheap with this few things casting
@@ -310,8 +315,11 @@ export class VictoryScene {
     this.camDir = new THREE.Vector3();
   }
 
+  // Some outfits have their own line (Eli as The Bender...).
   get quote() {
-    return this.victory.quote ?? '';
+    const { character, look } = this.winner;
+    const outfit = look?.model && outfitsFor(character).find((o) => o.model === look.model);
+    return outfit?.quote ?? this.victory.quote ?? '';
   }
 
   // Where the camera is at `t` seconds: swoop, then drift.
@@ -399,7 +407,7 @@ export class VictoryScene {
       const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
       for (const m of mats) {
         if (!o.userData.cached && !m.map?.userData.cached) m.map?.dispose();
-        m.dispose();
+        if (!m.userData.shared) m.dispose();
       }
     });
   }

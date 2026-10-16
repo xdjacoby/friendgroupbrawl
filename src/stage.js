@@ -78,7 +78,8 @@ export function ink(mesh, width = 0.05) {
 // Scenery that never moves (relative to `root`) is hundreds of small meshes;
 // drawing each one separately is what slows the frame down. Bake them into one
 // mesh per material (all the outlines become a single mesh, and so on).
-export function mergeStatic(root, { receive = false } = {}) {
+// `cast`: the merged meshes cast shadows too (a few big pieces, like a roof).
+export function mergeStatic(root, { receive = false, cast = false } = {}) {
   root.updateMatrixWorld(true);
   const inv = root.matrixWorld.clone().invert();
   const meshes = [];
@@ -97,9 +98,43 @@ export function mergeStatic(root, { receive = false } = {}) {
   for (const [material, geos] of buckets) {
     const mesh = new THREE.Mesh(mergeGeometries(geos), material);
     mesh.receiveShadow = receive && material !== INK_MAT;
+    mesh.castShadow = cast && material !== INK_MAT && !material.transparent;
     root.add(mesh);
     for (const g of geos) g.dispose();
   }
+}
+
+// The scenery never hides a fighter. The stage's front edge sticks out ~2 m
+// toward the camera, so seen from the middle of the screen it used to cover
+// whoever hung on a ledge (or recovered just under it). Every scenery
+// material writes its depth as if it were SCENERY_DEPTH times farther from
+// the camera (the whole scenery scaled about the camera: nothing moves on
+// screen, flat walls stay flat, the scenery sorts itself the same way), so
+// fighters, hits and projectiles always end up in front of it. At the
+// closest zoom (14 m) that puts the front edge ~3.5 m behind the fighters.
+// The camera's far plane has to grow by the same factor (Game does that).
+export const SCENERY_DEPTH = 1.3;
+const pushedBack = new WeakSet();
+export function keepBehindFighters(root) {
+  root.traverse((o) => {
+    const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+    for (const m of mats) {
+      if (pushedBack.has(m)) continue;
+      pushedBack.add(m);
+      const before = m.onBeforeCompile;
+      // Keep its program apart from unpatched materials of the same kind.
+      const key = m.customProgramCacheKey === THREE.Material.prototype.customProgramCacheKey ? () => before.toString() : m.customProgramCacheKey.bind(m);
+      m.onBeforeCompile = (shader, renderer) => {
+        before.call(m, shader, renderer);
+        // Depth of the point SCENERY_DEPTH times as far along its ray; x, y
+        // and w stay, so it lands on the same pixel.
+        shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', /* glsl */ `#include <project_vertex>
+          gl_Position.z -= projectionMatrix[3][2] * ${(1 - 1 / SCENERY_DEPTH).toFixed(5)};`);
+      };
+      m.customProgramCacheKey = () => `${key()}|behind`;
+      m.needsUpdate = true;
+    }
+  });
 }
 
 // mesh(geometry, material, x, y, z, parent) with shadows on.
