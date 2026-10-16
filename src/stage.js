@@ -87,7 +87,7 @@ export function mergeStatic(root, { receive = false } = {}) {
   for (const o of meshes) {
     const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
-    const keep = o.material.map ? ['position', 'normal', 'uv'] : ['position', 'normal'];
+    const keep = ['position', 'normal', ...(o.material.map ? ['uv'] : []), ...(o.material.vertexColors ? ['color'] : [])];
     for (const name of Object.keys(g.attributes)) if (!keep.includes(name)) g.deleteAttribute(name);
     if (!g.attributes.normal) g.computeVertexNormals();
     if (!buckets.has(o.material)) buckets.set(o.material, []);

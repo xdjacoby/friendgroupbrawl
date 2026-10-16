@@ -52,6 +52,11 @@ export class Game {
     const where = stageById(stage);
     this.stage = where.create();
     this.stageView = where.build(this.stage, this.scene);
+    // Stages with faraway scenery (SUNY Canton) ask for a longer view.
+    if (this.stageView.camera) {
+      Object.assign(this.camera, this.stageView.camera);
+      this.camera.updateProjectionMatrix();
+    }
     this.effects = new Effects(this.scene);
 
     this.fighters = players.map((p, i) => new Fighter({
@@ -687,6 +692,8 @@ export class Game {
     this.hud.dispose();
     this.scene.background?.dispose?.();
     this.scene.traverse((o) => {
+      if (o.isSkinnedMesh) o.skeleton.dispose(); // each fighter's bone texture
+      if (o.isLight) o.dispose(); // the shadow map
       // Loaded models share geometry and textures with the cache for the next match.
       if (!o.userData.cached) o.geometry?.dispose();
       const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];

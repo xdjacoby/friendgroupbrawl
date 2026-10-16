@@ -259,18 +259,40 @@ button.primary:hover:not(:disabled) { background: #ffdc6b; }
 
 /* ---- Victory screen (the 3D scene renders behind this) ---- */
 #results {
+  --win: #fff; /* the winner's color, set by main.js */
   justify-content: space-between;
   align-items: stretch;
   padding: 28px;
   pointer-events: none;
 }
 #results > * { pointer-events: auto; }
-.victory-banner { align-self: flex-start; animation: slide-in 0.6s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+/* The name lands on a slanted band in the winner's color as the camera
+   finishes its swoop (src/victory.js), Smash style. */
+.victory-banner {
+  position: relative;
+  align-self: flex-start;
+  padding: 4px 34px 12px 26px;
+  isolation: isolate;
+  animation: slide-in 0.6s 1.5s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.victory-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0 -30px 0 -80px;
+  z-index: -1;
+  transform: skewX(-14deg);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--win) 80%, #000) 55%, transparent);
+  border-bottom: 5px solid #fff;
+  box-shadow: 0 6px 18px #0006;
+  animation: band-in 0.45s 1.35s cubic-bezier(0.2, 1, 0.3, 1) both;
+  transform-origin: left;
+}
 .victory-banner h2 {
+  color: #fff;
   font-size: clamp(2.8rem, 9vw, 6rem);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  text-shadow: 0 5px 0 #000a, 0 0 24px #0008;
+  text-shadow: 0 5px 0 color-mix(in srgb, var(--win) 45%, #000), 0 0 24px #0008;
 }
 .victory-banner p {
   margin: 6px 0 0;
@@ -279,11 +301,15 @@ button.primary:hover:not(:disabled) { background: #ffdc6b; }
   letter-spacing: 0.02em;
   color: #fff;
   text-shadow: 0 2px 6px #000c;
-  animation: slide-in 0.6s 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+  animation: slide-in 0.6s 1.85s cubic-bezier(0.2, 1.4, 0.4, 1) both;
 }
 @keyframes slide-in {
   from { transform: translateX(-60px); opacity: 0; }
   to { transform: none; opacity: 1; }
+}
+@keyframes band-in {
+  from { transform: skewX(-14deg) scaleX(0); }
+  to { transform: skewX(-14deg) scaleX(1); }
 }
 .results-panel {
   align-self: flex-end;
@@ -294,7 +320,7 @@ button.primary:hover:not(:disabled) { background: #ffdc6b; }
   padding: 14px 18px;
   background: var(--panel);
   border-radius: 14px;
-  animation: rise 0.5s 0.6s ease-out both;
+  animation: rise 0.5s 2.1s ease-out both;
 }
 @keyframes rise {
   from { transform: translateY(40px); opacity: 0; }
