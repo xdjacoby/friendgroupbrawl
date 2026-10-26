@@ -39,9 +39,10 @@ function setSugar(f, bg, world) {
 
 const CGM_COLORS = { low: 0x4aa8ff, ok: 0x3ddc84, rush: 0xffd23f, spike: 0xff3b3b };
 
-// Insulin makes your blood sugar crash: slowed for a couple of seconds.
+// Insulin makes your blood sugar crash: slowed for a second and a half
+// (it was 2.5 s, back when he could throw two a second).
 function crash(v, world) {
-  v.slowTimer = Math.max(v.slowTimer, 150);
+  v.slowTimer = Math.max(v.slowTimer, 90);
   world.effects.text(v.x, v.y + v.h + 0.5, 'CRASH zZz', '#9fd0ff', 0.4, 1.0);
 }
 
@@ -57,6 +58,10 @@ const holding = (pose, side, prop, from, to) => (frame, f) => {
   if (frame >= from && frame <= to) p[side] = prop;
   return p;
 };
+
+// Frames from one dart to the next: he has to get another pen ready. Too
+// spammy without it (a dart every half second, each one slowing you).
+const DART_COOLDOWN = 100;
 
 const INSULIN_DART = {
   look: 'prop', prop: 'insulinPen', aim: true, x: 0.7, y: 1.55, speed: 16, vy: 2, gravity: 9, life: 70,
@@ -78,12 +83,16 @@ export const ANDREW = {
   // Blood sugar burns off as he fights; his speed and power follow it.
   update(f, world) {
     setSugar(f, sugar(f) - BG_BURN, world);
+    if (f.charState.dartCooldown > 0) f.charState.dartCooldown--;
     if (f.charState.state === 'rush' && world.frame % 10 === 0 && !f.dead) {
       world.effects.sparkle(f.x, f.y + 1.2, 0xfff3a0, 1, 1.0);
     }
   },
 
-  hud: (f) => `🩸${Math.round(sugar(f))}${STATES[f.charState.state ?? 'ok'].hud}`,
+  hud: (f) => {
+    const cd = f.charState.dartCooldown;
+    return `🩸${Math.round(sugar(f))}${STATES[f.charState.state ?? 'ok'].hud} · 💉${cd > 0 ? ` ${Math.ceil(cd / 60)}s` : ''}`;
+  },
 
   poses: {
     // Shaky when he's low.
@@ -97,7 +106,7 @@ export const ANDREW = {
     const bg = sugar(f);
     if (bg < 85 && dist > 3.5 && Math.random() < 0.05) return { special: true, y: -1 };
     if (f.charState.state === 'spike' && dist > 3 && Math.random() < 0.05) return { special: true };
-    if (dist > 3.5 && dist < 9 && Math.random() < 0.03) return { special: true, face: true };
+    if (dist > 3.5 && dist < 9 && f.canUse('nspecial') && Math.random() < 0.03) return { special: true, face: true };
     if (f.grounded && dist > 2 && dist < 5 && Math.random() < 0.02) return { special: true, x: Math.sign(dx) };
     return null;
   },
@@ -353,14 +362,18 @@ export const ANDREW = {
     // ---- Specials ----
 
     // NEUTRAL SPECIAL - Insulin Dart: throws an insulin pen like a dart. Their
-    // sugar crashes: slowed for a couple of seconds. One at a time.
+    // sugar crashes: slowed for a second and a half. One at a time, then a
+    // cooldown (the HUD's 💉 counts it down); too soon and he comes up empty.
     // While he's SPIKING, the same button doses himself instead (Correction).
     nspecial: {
       total: 30, limb: 'arm',
-      available: (f) => f.charState.state !== 'spike',
-      fallback: 'correction',
+      available: (f) => f.charState.state !== 'spike' && !(f.charState.dartCooldown > 0),
+      fallback: 'noPen',
       onFrame(f, frame, input, world) {
-        if (frame === 12) world.spawnProjectile(f, INSULIN_DART);
+        if (frame === 12) {
+          world.spawnProjectile(f, INSULIN_DART);
+          f.charState.dartCooldown = DART_COOLDOWN;
+        }
       },
       hitboxes: [],
       pose: holding(keyframes([
@@ -370,6 +383,23 @@ export const ANDREW = {
         [16, {}],
         [27, REST],
       ]), 'rHeld', null, 12, 24),
+    },
+
+    // Dart too soon: he pats his pockets for a pen. Short, but wide open.
+    noPen: {
+      total: 22, limb: 'arm',
+      available: (f) => f.charState.state !== 'spike',
+      fallback: 'correction',
+      onFrame(f, frame, input, world) {
+        if (frame === 4) world.effects.text(f.x, f.y + f.h + 0.4, '*no pen*', '#9fd0ff', 0.32, 0.7);
+      },
+      hitboxes: [],
+      pose: keyframes([
+        [0, REST],
+        [6, { rArm: [-0.15, -1, 0.45], rFore: [0.2, -1, 0.2], lArm: [0.05, -1, -0.45], lFore: [0.3, -1, -0.2], look: -0.35, lean: 0.1 }],
+        [14, { rArm: [-0.05, -1, 0.4], lArm: [0.1, -1, -0.4], look: -0.25 }],
+        [22, REST],
+      ]),
     },
 
     // Correction: a shot in the thigh brings a spike back down to normal.

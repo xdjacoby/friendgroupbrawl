@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { toon, ink, mergeStatic, place, seeded, paint } from '../stage.js';
+import { toon, ink, mergeStatic, place, seeded, paint, FRONT } from '../stage.js';
 
 // Rushton Hall: a fall afternoon out front of the dorm, built in 3D from the
 // owner's photo (public/stages/rushton-hall.jpg, also the stage picker's
@@ -443,10 +443,12 @@ function hazeTexture() {
 }
 
 // ---- The canopy ----
-// A symmetric arch: its front edge rises from 4.75 m at the ends (x ±4.4)
-// to 6.55 m in the middle. Front edge at z = -0.5, back into the building
-// at z = -6.3.
-const ROOF = { half: 4.4, spring: 4.75, apex: 6.55, front: -0.5, back: -6.3, thick: 0.45 };
+// A symmetric arch: its front edge rises from 6.6 m at the ends (x ±4.4)
+// to 8.4 m in the middle. Front edge at z = -0.5, back into the building
+// at z = -6.3. It used to be 1.85 m lower, and whoever stood on the top
+// platform had their head in the roof; now there's 1.3-2 m over them (the
+// photo's canopy is about twice as tall as the wings anyway).
+const ROOF = { half: 4.4, spring: 6.6, apex: 8.4, front: -0.5, back: -6.3, thick: 0.45 };
 const ROOF_R = (ROOF.half ** 2 + (ROOF.apex - ROOF.spring) ** 2) / (2 * (ROOF.apex - ROOF.spring));
 const roofY = (x) => ROOF.apex - ROOF_R + Math.sqrt(ROOF_R ** 2 - Math.min(x * x, ROOF.half ** 2));
 const COLUMN_X = 2.95; // the front columns, at the beam's ends
@@ -514,7 +516,7 @@ function buildCanopy(scene, m) {
     box(x - 0.12, x + 0.12, 1.0, under(x) + 0.1, COLUMN_Z - 0.12, COLUMN_Z + 0.12, m.maroon, g, 0.03);
     box(x - 0.12, x + 0.12, 0, under(x) + 0.1, GLASS_Z + 0.05, GLASS_Z + 0.29, m.maroon, g, 0.03);
     // Brace from the column into the roof, like the photo's.
-    beam(x, 3.0, x - s * 0.9, under(x - s * 0.9) + 0.05, COLUMN_Z - 0.25, 0.1, m.maroon, g);
+    beam(x, under(x) - 2.1, x - s * 0.9, under(x - s * 0.9) + 0.05, COLUMN_Z - 0.25, 0.1, m.maroon, g);
     // The planter, with mums on top.
     const planter = place(new RoundedBoxGeometry(0.95, 1.0, 0.95, 2, 0.04), m.stone, x, 0.5, COLUMN_Z, g);
     meterUV(planter.geometry);
@@ -550,16 +552,18 @@ function buildEntrance(scene, m) {
   const z = GLASS_Z;
 
   // The lobby: a warm-lit room behind the glass (lit by its own lights, so
-  // it isn't shaded by the sun).
+  // it isn't shaded by the sun), two stories tall up to the canopy.
   const back = z - 4.5;
+  const top = ROOF.apex - ROOF.thick + 0.1; // hidden behind the soffit
   panel(x1, x2, 0, head, back, m.lobby, g);
+  panel(x1, x2, head, top, back, m.lobbySide, g);
   for (const [x, rot] of [[x1, Math.PI / 2], [x2, -Math.PI / 2]]) {
-    const side = place(new THREE.PlaneGeometry(4.5, head), m.lobbySide, x, head / 2, (z + back) / 2, g);
+    const side = place(new THREE.PlaneGeometry(4.5, top), m.lobbySide, x, top / 2, (z + back) / 2, g);
     side.rotation.y = rot;
   }
   const floor = place(new THREE.PlaneGeometry(x2 - x1, 4.5), m.lobbyFloor, 0, 0.01, (z + back) / 2, g);
   floor.rotation.x = -Math.PI / 2;
-  const ceiling = place(new THREE.PlaneGeometry(x2 - x1, 4.5), m.lobbySide, 0, head, (z + back) / 2, g);
+  const ceiling = place(new THREE.PlaneGeometry(x2 - x1, 4.5), m.lobbySide, 0, top, (z + back) / 2, g);
   ceiling.rotation.x = Math.PI / 2;
 
   // Glass: the front up to the head, then the clerestory up under the roof.
@@ -837,7 +841,7 @@ export function buildRushton(stage, scene) {
   const land = new THREE.Group();
   scene.add(land);
   const main = stage.main;
-  const front = 2.1;
+  const front = FRONT;
   const edge = -2.6; // where the lawns beyond the stage's edges stop
   ground(main.x1 + 0.28, main.x2 - 0.28, edge, front - 0.3, 0, m.plaza, land);
   ground(-4.6, 4.6, GLASS_Z - 0.2, edge, 0, m.plaza, land);

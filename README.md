@@ -147,7 +147,7 @@ Chronically online, fluent in brainrot. Built like Velma from MultiVersus: speec
 | Neutral | **Brainrot** | Shouts a speech bubble (hold up or down to aim it). They come in order: **NEEGY** (fast and straight), **GUCCI MORTY** (big, slow, hangs around and hits a few times, and **eats other people's projectiles**), **KIRK** (short range, bonks hard, then **bursts into three little kirks**), **FUNKY EHH** (wobbles out and **comes back like a boomerang**, hitting again on the way). Every hit builds clout and gives them a stack of **brainrot**: three stacks and they're **BRAINROTTED**, their left and right swap for 2 seconds (no new stacks while that lasts). |
 | Side | **Hit the Griddy** | Hold the button to hype it up (he griddies in place), let go to griddy across the stage into them. Charged past halfway it's the strong version. Builds clout. |
 | Up | **Subway Surfers** | Pulls out a hoverboard and surfs off in whatever direction you hold (straight up if you don't), **steering as he goes**, leaving a trail of coins. Hits on takeoff and along the ride. His recovery. |
-| Down | **Doomscroll** / **FBI OPEN UP** | Stares at his phone for as long as you hold the button, building clout (wide open while he does). When clout hits 100% (📈VIRAL), down special on the ground **calls the FBI**: a black van tears across the stage from behind him and runs over everyone in its way. Uses up all his clout. |
+| Down | **Doomscroll** / **FBI OPEN UP** | Stares at his phone for as long as you hold the button, building clout (wide open while he does; about 4 seconds of holding takes him from 0 to viral, and it stops by itself when he gets there). When clout hits 100% (📈VIRAL), down special on the ground **calls the FBI**: a black van tears across the stage from behind him and runs over everyone in its way. Uses up all his clout. |
 
 ### Andrew
 Type 1 diabetic, and his whole kit is built around it. Carries an insulin pen and wears his **CGM** (the glucose sensor) on the back of his left arm; its light shows his sugar: green normal, yellow rush, red spike, blue low. He has to manage his **blood sugar** while he fights (the HUD shows 🩸 and his mg/dL):
@@ -174,7 +174,7 @@ It slowly burns off during the match (about 1.5 a second), so every so often he 
 
 | Special | Move | What it does |
 |---|---|---|
-| Neutral | **Insulin Dart** / **Correction** | Throws an insulin pen like a dart. Whoever it hits **crashes**: slowed for 2.5 seconds. While he's SPIKING, the same button doses himself instead and brings his sugar back to 120. |
+| Neutral | **Insulin Dart** / **Correction** | Throws an insulin pen like a dart. Whoever it hits **crashes**: slowed for 1.5 seconds. Then he needs a new pen: about 1.7 seconds before the next dart (the 💉 on his HUD counts it down; too soon and he pats his pockets, wide open). While he's SPIKING, the same button doses himself instead and brings his sugar back to 120. |
 | Side | **Glucose Check** | Lunges in with his meter and pricks them. The meter reads their damage like a blood sugar; at 150%+ it reads **HI** and they fly a lot farther. |
 | Up | **Sugar Rush** | Downs a glucose tab and rockets up in a jittery zigzag, hitting a few times. Higher in a sugar rush, lower when he's low. His recovery. |
 | Down | **Juice Box** | Drinks a juice box: +80 mg/dL and heals 2%. Fixes a low, or tips him into a sugar rush. Drink too many and he spikes. |

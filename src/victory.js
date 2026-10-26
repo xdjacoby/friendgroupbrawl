@@ -66,6 +66,7 @@ const TIMES = [['day', 4], ['sunset', 3], ['night', 3]];
 const SWOOP = 2.6; // seconds
 const WIDE = { az: -1.05, el: 0.24, dist: 30, look: [0, -1.5, 0], roll: 0.18 };
 const HERO = { az: 0, el: 0.12, dist: 7.4, look: [0, 1.5, 0], roll: 0 };
+const HERO_LOOK = new THREE.Vector3(...HERO.look);
 const ease = (t) => 1 - (1 - t) ** 3;
 const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -94,28 +95,36 @@ function dot() {
 
 // Fireworks over the campus behind the island: a rocket climbs, then bursts
 // into a ball of sparks that droop and fade. Additive points, no lights.
+const SPARKS = 90;
 class Fireworks {
   constructor(scene, colors) {
-    this.scene = scene;
     this.colors = colors.map((c) => new THREE.Color(c).lerp(new THREE.Color(0xffffff), 0.25));
     this.list = [];
     this.timer = 1.2;
-  }
-
-  launch() {
-    const n = 90;
-    const pos = new Float32Array((n + 1) * 3);
-    const col = new Float32Array((n + 1) * 3);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    // Made up front and reused (at most 7 are ever up at once), so none has
+    // to be built, uploaded or have its shader compiled mid-show.
     const mat = new THREE.PointsMaterial({
       size: 3.4, map: dot(), vertexColors: true, transparent: true, depthWrite: false,
       blending: THREE.AdditiveBlending, fog: false,
     });
-    const points = new THREE.Points(geo, mat);
-    points.frustumCulled = false;
-    this.scene.add(points);
+    this.pool = [];
+    for (let i = 0; i < 7; i++) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((SPARKS + 1) * 3), 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array((SPARKS + 1) * 3), 3));
+      const points = new THREE.Points(geo, mat);
+      points.frustumCulled = false;
+      points.visible = false;
+      scene.add(points);
+      this.pool.push(points);
+    }
+  }
+
+  launch() {
+    const points = this.pool.find((p) => !p.visible);
+    if (!points) return;
+    points.visible = true;
+    points.geometry.attributes.color.array.fill(0);
     // Somewhere out behind the island (the camera looks down -z).
     const x = (Math.random() - 0.5) * 160;
     const z = -60 - Math.random() * 90;
@@ -123,7 +132,7 @@ class Fireworks {
     const to = new THREE.Vector3(x + (Math.random() - 0.5) * 12, 12 + Math.random() * 30, z);
     const color = this.colors[Math.floor(Math.random() * this.colors.length)];
     const vel = [];
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < SPARKS; i++) {
       // Even-ish ball of directions.
       const u = Math.random() * 2 - 1;
       const a = Math.random() * Math.PI * 2;
@@ -166,9 +175,7 @@ class Fireworks {
       pos.needsUpdate = true;
       col.needsUpdate = true;
       if (f.age > RISE + LIFE) {
-        f.points.removeFromParent();
-        f.points.geometry.dispose();
-        f.points.material.dispose();
+        f.points.visible = false; // back in the pool
         return false;
       }
       return true;
@@ -248,7 +255,7 @@ export class VictoryScene {
     setAtmosphere(p.haze, 0.45);
     const key = this.world.key;
     key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048); // seen up close: crisp shadows are cheap with this few things casting
+    key.shadow.mapSize.set(1024, 1024); // over 16 m: ~1.6 cm a texel, plenty up close
     key.shadow.bias = -0.0004;
     Object.assign(key.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, near: 1, far: 70 });
 
@@ -313,6 +320,41 @@ export class VictoryScene {
 
     this.look = new THREE.Vector3();
     this.camDir = new THREE.Vector3();
+
+    // Things that would otherwise show up mid-show (and stall a frame while
+    // their shaders compile): the confetti, the effects' materials, and the
+    // props the winner's animation swaps into their hands.
+    this.effects.confettiPool();
+    this.effects.warmUp();
+    const winnerView = this.actors[0].view;
+    for (let frame = 0; frame < 600; frame += 2) {
+      const pose = this.victory.pose(frame, this.actors[0].f) ?? {};
+      if (pose.rHeld) winnerView.handProp('right', pose.rHeld);
+      if (pose.lHeld) winnerView.handProp('left', pose.lHeld);
+    }
+  }
+
+  // Resolves once everything is in (the campus, the fighters' models) and
+  // every shader is compiled, in the background where the browser can. Until
+  // then main.js keeps showing the match, so the switch doesn't freeze.
+  async prepare() {
+    await Promise.all([this.world.ready, ...this.actors.map((a) => a.view.ready)]);
+    this.scene.traverse((o) => {
+      for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
+        if (m.map) this.renderer.initTexture(m.map);
+      }
+    });
+    await this.renderer.compileAsync(this.scene, this.camera);
+    if (this.disposed) return;
+    // One frame drawn into a single pixel (the match covers it up next
+    // frame): uploads the geometry and builds the shadow pass's shaders,
+    // which compiling alone doesn't.
+    const r = this.renderer;
+    this.placeCamera(0);
+    r.setScissorTest(true);
+    r.setScissor(0, 0, 1, 1);
+    r.render(this.scene, this.camera);
+    r.setScissorTest(false);
   }
 
   // Some outfits have their own line (Eli as The Bender...).
@@ -332,7 +374,7 @@ export class VictoryScene {
       el = lerp(WIDE.el, HERO.el, k);
       dist = lerp(WIDE.dist, HERO.dist, ease(Math.min(1, (t / SWOOP) * 1.15)));
       roll = lerp(WIDE.roll, HERO.roll, k);
-      look.set(...WIDE.look).lerp(new THREE.Vector3(...HERO.look), ease(Math.min(1, (t / SWOOP) * 1.3)));
+      look.set(...WIDE.look).lerp(HERO_LOOK, ease(Math.min(1, (t / SWOOP) * 1.3)));
     } else {
       const s = t - SWOOP;
       // Slow figure-eight around the winner; starts at the hero shot.
@@ -399,6 +441,7 @@ export class VictoryScene {
   }
 
   dispose() {
+    this.disposed = true;
     this.world.dispose();
     this.scene.traverse((o) => {
       if (o.isSkinnedMesh) o.skeleton.dispose(); // each fighter's bone texture

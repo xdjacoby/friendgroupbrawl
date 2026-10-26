@@ -273,8 +273,9 @@ export class Fighter {
   startMove(name, input, world) {
     let def = this.moves[name];
     // Some moves need something you might not have (e.g. a thrown magnifying glass):
-    // `available(f)` says whether you can, `fallback` is what you do instead.
-    if (def.available && !def.available(this)) {
+    // `available(f)` says whether you can, `fallback` is what you do instead
+    // (which can have a fallback of its own).
+    while (def.available && !def.available(this)) {
       name = def.fallback;
       def = this.moves[name];
     }

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { FONTS } from './fonts.js';
 
+const _piece = new THREE.Object3D();
+
 // Speech bubble pictures are the same every time a phrase is shouted: draw each once.
 const bubbleTextures = new Map();
 
@@ -275,23 +277,67 @@ export class Effects {
     }
   }
 
-  // Confetti for the victory screen.
+  // Confetti for the victory screen. Every piece is an instance of one mesh:
+  // one draw call (a mesh each added ~150 once a few bursts were falling).
   confetti(x, y, colors, count = 40, spread = 6) {
-    for (let i = 0; i < count; i++) {
-      const color = colors[i % colors.length];
-      const mesh = new THREE.Mesh(this.confettiGeo ??= new THREE.PlaneGeometry(0.09, 0.16), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true }));
-      mesh.position.set(x + (Math.random() - 0.5) * spread, y + Math.random() * 2, (Math.random() - 0.5) * 3);
-      const vx = (Math.random() - 0.5) * 0.8;
-      const vy = -(1 + Math.random() * 1.2);
-      const spin = (Math.random() - 0.5) * 12;
-      this.add(mesh, 4 + Math.random() * 2, (m, t) => {
-        m.position.x += vx / 60 + Math.sin(t * 20 + spin) * 0.004;
-        m.position.y += vy / 60;
-        m.rotation.x += spin / 60;
-        m.rotation.y += spin / 90;
-        m.material.opacity = t > 0.85 ? 1 - (t - 0.85) / 0.15 : 1;
+    const c = this.confettiPool();
+    for (let i = 0; i < count && c.pieces.length < c.max; i++) {
+      c.pieces.push({
+        x: x + (Math.random() - 0.5) * spread, y: y + Math.random() * 2, z: (Math.random() - 0.5) * 3,
+        vx: (Math.random() - 0.5) * 0.8, vy: -(1 + Math.random() * 1.2), spin: (Math.random() - 0.5) * 12,
+        rx: 0, ry: 0, age: 0, life: 4 + Math.random() * 2, color: new THREE.Color(colors[i % colors.length]),
       });
     }
+  }
+
+  confettiPool() {
+    if (!this.confettiBits) {
+      const max = 400;
+      const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.09, 0.16), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }), max);
+      mesh.setColorAt(0, new THREE.Color()); // so its shader is built with colors from the start
+      mesh.count = 0;
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+      this.confettiBits = { mesh, max, pieces: [] };
+    }
+    return this.confettiBits;
+  }
+
+  updateConfetti(dt) {
+    const c = this.confettiBits;
+    if (!c) return;
+    c.pieces = c.pieces.filter((p) => (p.age += dt) < p.life);
+    c.pieces.forEach((p, i) => {
+      p.x += (p.vx + Math.sin(p.age * 4 + p.spin) * 0.24) * dt; // flutters side to side
+      p.y += p.vy * dt;
+      p.rx += p.spin * dt;
+      p.ry += (p.spin / 1.5) * dt;
+      const t = p.age / p.life;
+      _piece.position.set(p.x, p.y, p.z);
+      _piece.rotation.set(p.rx, p.ry, 0);
+      _piece.scale.setScalar(t > 0.85 ? Math.max(0.001, 1 - (t - 0.85) / 0.15) : 1); // shrinks away at the end
+      _piece.updateMatrix();
+      c.mesh.setMatrixAt(i, _piece.matrix);
+      c.mesh.setColorAt(i, p.color);
+    });
+    c.mesh.count = c.pieces.length;
+    c.mesh.instanceMatrix.needsUpdate = true;
+    c.mesh.instanceColor.needsUpdate = true;
+  }
+
+  // Hidden stand-ins for the materials effects are made of, so
+  // renderer.compile builds their shaders ahead of time (the victory screen
+  // does; otherwise the first puff or pop-up text stalls a frame while its
+  // shader compiles).
+  warmUp() {
+    const g = new THREE.Group();
+    g.visible = false;
+    const map = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    g.add(new THREE.Mesh(this.sphere, new THREE.MeshBasicMaterial({ transparent: true })));
+    g.add(new THREE.Mesh(this.sphere, new THREE.MeshStandardMaterial({ transparent: true, roughness: 1, depthWrite: false })));
+    g.add(new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthTest: false })));
+    g.add(new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false })));
+    this.scene.add(g);
   }
 
   // A big cartoon explosion (Byron's Lambo wrecking): white flash, a fireball
@@ -488,6 +534,7 @@ export class Effects {
   }
 
   update(dt) {
+    this.updateConfetti(dt);
     this.items = this.items.filter((it) => {
       it.life -= dt;
       if (it.life <= 0) {

@@ -141,7 +141,6 @@ const GRIDDY_STRONG = 30; // charge needed for the strong hitbox
 const GRIDDY_END = 26; // last sprinting frame
 
 const SCROLL_HOLD = 8;
-const SCROLL_MAX = 180;
 
 // The van Eli calls in when he's gone viral. Drives in from behind him.
 const FBI_VAN = {
@@ -602,7 +601,8 @@ export const ELI = {
         f.vx *= 0.8;
         if (!f.grounded) f.vy = Math.max(f.vy - 0.3, -3); // can't stall forever in the air
         if (frame === SCROLL_HOLD && !m.done) {
-          if (input.specialHeld && m.scroll < SCROLL_MAX) {
+          // Keeps going until he's gone viral (it used to stop after 3 s, at 81%).
+          if (input.specialHeld && clout(f) < 100) {
             m.scroll++;
             m.frame--;
             gainClout(f, CLOUT_SCROLL, world);

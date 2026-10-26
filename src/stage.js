@@ -33,6 +33,14 @@ export function createStage() {
   };
 }
 
+// How far a stage's front edge (main stage and platforms) comes out toward
+// the camera. The fighters walk at z = 0, so the edge is just in front of
+// their feet and the stage's depth goes back from there. It used to be
+// 2.1 m: seen from the middle of the screen the front corner then showed up
+// almost a meter outside the real ledge, so whoever hung on a ledge was
+// drawn across the stage's front wall (as if seen through it).
+export const FRONT = 0.4;
+
 // ---- Cartoon look ----
 // Toon shading (three flat tones per color), dark "ink" outlines, and textures
 // painted onto canvases at load time, so there are no image files to manage.
@@ -104,9 +112,10 @@ export function mergeStatic(root, { receive = false, cast = false } = {}) {
   }
 }
 
-// The scenery never hides a fighter. The stage's front edge sticks out ~2 m
-// toward the camera, so seen from the middle of the screen it used to cover
-// whoever hung on a ledge (or recovered just under it). Every scenery
+// The scenery never hides a fighter. The stage's front edge sticks out a bit
+// toward the camera (FRONT), so it would cover the hands of whoever hangs on
+// a ledge, and a fighter recovering from below passes just behind the
+// stage's rock. Every scenery
 // material writes its depth as if it were SCENERY_DEPTH times farther from
 // the camera (the whole scenery scaled about the camera: nothing moves on
 // screen, flat walls stay flat, the scenery sorts itself the same way), so
@@ -365,6 +374,7 @@ export function buildStageScene(stage, scene) {
   // ---- Main island ----
   const m = stage.main;
   const island = new THREE.Group();
+  island.position.z = FRONT - 2.1; // built around z = 0 with its front at 2.1
   scene.add(island);
 
   // Grass cap with cartoon drips hanging over the dirt.
@@ -433,7 +443,7 @@ export function buildStageScene(stage, scene) {
   const plankMat = toon(0xffffff, { map: plankTexture() });
   for (const p of stage.platforms) {
     // Thin enough to clear the heads of people walking underneath.
-    const deck = place(new RoundedBoxGeometry(p.x2 - p.x1, 0.2, 2.0, 2, 0.06), plankMat, (p.x1 + p.x2) / 2, p.y - 0.1, 0, scene);
+    const deck = place(new RoundedBoxGeometry(p.x2 - p.x1, 0.2, 2.0, 2, 0.06), plankMat, (p.x1 + p.x2) / 2, p.y - 0.1, FRONT - 1.0, scene);
     ink(deck, 0.045);
   }
 

@@ -33,18 +33,20 @@ const QUALITY = {
 let quality = QUALITY[store.get('brawl.quality', 'auto')] ? store.get('brawl.quality', 'auto') : 'auto';
 let pixelRatio = 1;
 
-// The resolution range for what's on screen. The victory screen is a light
-// scene seen up close, so it never inherits whatever Auto dropped to in a
-// heavy match (that made everyone look blurry): it renders at least at
-// screen resolution, and above it when there's room (smoother edges and
-// skin on the scanned models).
+// The resolution range for what's on screen. The victory screen doesn't
+// inherit whatever Auto dropped to in a heavy match (that made everyone look
+// blurry): Auto starts it at screen resolution and only lowers it a little
+// (to 0.75x) if it runs slow. It's no lighter than a match (the whole campus
+// is behind it), so it no longer renders above screen resolution on Auto:
+// at 1.5x it lagged on the friends' laptops.
 function ratioRange() {
   const q = QUALITY[quality];
   const dpr = window.devicePixelRatio || 1;
   if (victory) {
     const native = Math.max(1, dpr);
-    const top = quality === 'fast' ? native : Math.min(2, native * 1.5);
-    return { top, min: native };
+    if (quality === 'high') return { top: Math.min(2, native * 1.5), min: Math.min(2, native * 1.5) };
+    if (quality === 'fast') return { top: native * 0.8, min: native * 0.8 };
+    return { top: native, min: native * 0.75 };
   }
   return { top: quality === 'fast' ? q.max : Math.min(dpr, q.max), min: q.min };
 }
@@ -168,6 +170,7 @@ window.addEventListener('gamepaddisconnected', updateHint);
 
 let game = null;
 let victory = null;
+let pendingVictory = null; // getting ready (see showResults)
 let paused = false;
 let lastSetup = null;
 
@@ -176,6 +179,7 @@ function startMatch(setup = buildSetup()) {
   game?.dispose();
   victory?.dispose();
   victory = null;
+  pendingVictory = null;
   voice.stopAll();
   game = new Game({
     renderer,
@@ -211,16 +215,30 @@ function buildSetup() {
 }
 
 function showResults(ranked) {
+  game.ended = true;
+  game.hud.el.remove();
+  // The match stays around (for Rematch) but the victory scene takes over the
+  // screen. A match on the campus keeps its time of day. The match's last
+  // frame stays up while the victory scene loads and compiles its shaders
+  // (a few dozen of them: compiling them on its first frame froze the
+  // screen), at most a few seconds.
+  const next = new VictoryScene({ renderer, ranked, time: game.stageView.timeOfDay });
+  pendingVictory = next;
+  const wait = new Promise((resolve) => setTimeout(resolve, 4000));
+  Promise.race([next.prepare(), wait]).catch(() => {}).then(() => {
+    if (pendingVictory !== next) return next.dispose(); // left the match meanwhile
+    pendingVictory = null;
+    revealResults(ranked, next);
+  });
+}
+
+function revealResults(ranked, scene) {
+  victory = scene;
   const winner = ranked[0];
   $('winner').textContent = `${winner.character.name} wins!`;
   screens.results.style.setProperty('--win', SLOT_COLORS[winner.slot]);
   $('standings').innerHTML = '<tr><th></th><th>Player</th><th>KOs</th><th>Falls</th></tr>' +
     ranked.map((f, i) => `<tr><td>${i + 1}</td><td style="color:${SLOT_COLORS[f.slot]}">P${f.slot + 1} · ${f.character.name}</td><td>${f.koCount}</td><td>${f.falls}</td></tr>`).join('');
-  game.ended = true;
-  game.hud.el.remove();
-  // The match stays around (for Rematch) but the victory scene takes over the
-  // screen. A match on the campus keeps its time of day.
-  victory = new VictoryScene({ renderer, ranked, time: game.stageView.timeOfDay });
   const flash = document.createElement('div');
   flash.className = 'screen-flash';
   flash.style.background = '#fff';
@@ -237,6 +255,7 @@ function toMenu() {
   victory?.dispose();
   game = null;
   victory = null;
+  pendingVictory = null;
   voice.stopAll();
   select.render();
   show('menu');
@@ -322,4 +341,4 @@ requestAnimationFrame(frame);
 setTimeout(() => loadCampus().then((campus) => campus && renderer.initTexture(campus.ground)), 1200);
 
 // Handy for tweaking from the browser console.
-window.brawl = { get game() { return game; }, get victory() { return victory; }, ROSTER, showResults, slots, startMatch, buildSetup, renderer };
+window.brawl = { get game() { return game; }, get victory() { return victory; }, get pendingVictory() { return pendingVictory; }, ROSTER, showResults, slots, startMatch, buildSetup, renderer };

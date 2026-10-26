@@ -23,7 +23,8 @@ import { keyframes, HOLD } from './poses.js';
 // animation for moves without one. Turn on "Show hitboxes" in the menu to see them.
 // `scripted: true` means the move controls the fighter's velocity itself.
 // `combo: { next, from }`: pressing attack again rolls into `next` (from that frame on).
-// `available(f)` + `fallback`: if the move can't be used right now, do `fallback` instead.
+// `available(f)` + `fallback`: if the move can't be used right now, do `fallback` instead
+// (a fallback can have its own `available` + `fallback`; don't make a loop).
 // `ledgeGrab: true` lets the fighter grab ledges during the move.
 // `onHit(f, victim, world)` runs when one of the move's hitboxes connects.
 // `onInterrupt(f, move, world)` runs if a hit or grab cuts the move short.
